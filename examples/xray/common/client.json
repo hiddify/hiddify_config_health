@@ -1,0 +1,30 @@
+{
+  "log": {
+    "loglevel": "{{LOG_LEVEL}}"
+  },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "port": {{SOCKS_PORT}},
+      "listen": "127.0.0.1",
+      "protocol": "socks",
+      "settings": {
+        "auth": "noauth", 
+        "udp": true
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch", 
+    "rules": [
+      {
+            "type": "field",
+            "port": "0-65535",
+            "outboundTag": "proxy"
+          }
+    ]
+  },
+  "outbounds":[
+      {"protocol": "freedom", "tag": "direct"}
+  ]
+}
