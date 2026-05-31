@@ -1,0 +1,9 @@
+"tlsSettings": {
+  "serverName": "{{SNI_NAME}}",
+  "allowInsecure": false,
+  "certificates": [
+    {
+      "certificateFile": "{{TLS_CA}}"
+    }
+  ]
+},
