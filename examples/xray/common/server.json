@@ -1,0 +1,13 @@
+{
+  "log": {
+    "loglevel": "{{LOG_LEVEL}}"
+  },
+  "outbounds": [
+    {"protocol": "freedom", "tag": "direct"}
+  ],
+  "routing": {
+    "rules": [
+      {"type": "field", "outboundTag": "direct", "ip": ["0.0.0.0/0"]}
+    ]
+  }
+}
