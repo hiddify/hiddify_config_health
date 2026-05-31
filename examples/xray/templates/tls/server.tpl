@@ -1,3 +1,4 @@
+{% if TLS %}
 "security": "tls",
 "tlsSettings": {
   "certificates": [
@@ -7,3 +8,5 @@
     }
   ]
 },
+
+{%endif%}

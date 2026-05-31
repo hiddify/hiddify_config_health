@@ -1,0 +1,25 @@
+{
+  "deploy_to_server":"",//or ssh://user:pass@host:port/path
+  "vars": [
+    {
+      "TITLE": "T1",
+      "SERVER":     "127.0.0.1", //or 
+      "PORT":       "auto",
+      "SOCKS_PORT": "auto",
+      "UUID":       "auto",
+      // "HOST_NAME":  "example.com",
+      // "SNI_NAME":   "example.com" #if not overrided use common 
+    },
+    {
+      "TITLE": "T2",
+      "SERVER":     "127.0.0.1", //or 
+      "PORT":       "auto",
+      "SOCKS_PORT": "auto",
+      "UUID":       "auto",
+      // "HOST_NAME":  "example.com",
+      // "SNI_NAME":   "example.com" #if not overrided use common 
+    },
+  ],
+  "checks": ["dns", "http", "quic", "speedtest"],
+  "timeout_sec": 30
+}

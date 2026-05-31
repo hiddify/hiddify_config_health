@@ -1,14 +1,4 @@
 {
-  "log": {"loglevel": "error"},
-  "inbounds": [
-    {
-      "tag": "socks-in",
-      "port": {{SOCKS_PORT}},
-      "listen": "127.0.0.1",
-      "protocol": "socks",
-      "settings": {"auth": "noauth", "udp": true}
-    }
-  ],
   "outbounds": [
     {
       "tag": "vless-out",
@@ -24,12 +14,7 @@
       },
       "streamSettings": {
         "network": "xhttp",
-        "security": "tls",
-        "tlsSettings": {
-          "serverName": "{{SNI_NAME}}",
-          "allowInsecure": false,
-          "certificates": [{"certificateFile": "{{TLS_CA}}"}]
-        },
+        {% include "../common/client/tls.json" %}
         "xhttpSettings": {
           "mode": "stream-up",
           "host": "{{HOST_NAME}}",

@@ -1,0 +1,12 @@
+{
+    "client_process_path": "env.HIDDIFY_CORE_CLIENT_PATH",
+    "server_process_path": "env.HIDDIFY_CORE_SERVER_PATH",//if empty use client_process_path
+    "client_arg":"srun -c ",
+    "server_arg":"srun -c ",
+
+    "vars":[
+        //override here
+    ]
+    //override other variables
+
+}

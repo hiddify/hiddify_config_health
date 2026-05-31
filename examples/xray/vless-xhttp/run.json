@@ -1,17 +1,21 @@
 {
-  "name": "VLESS + xHTTP (xray)",
-  "core": "xray",
-  "server_config": "server.json",
-  "client_config": "client.json",
-  "tls": true,
-  "vars": {
-    "SERVER":     "127.0.0.1",
-    "PORT":       "auto",
-    "SOCKS_PORT": "auto",
-    "UUID":       "auto",
-    "HOST_NAME":  "example.com",
-    "SNI_NAME":   "example.com"
-  },
+  "vars": [
+    {
+      "TITLE": "tls", //title field is special field and will be added to parent
+      "TLS": True,
+      // "HOST_NAME":  "example.com",
+      // "SNI_NAME":   "example.com" #if not overrided use common 
+      "VLESS_ENC":"none",
+      "VLESS_DEC":"none",
+    },
+    {
+      "TITLE": "vless-enc",
+      "VLESS_ENC":"auto",
+      "VLESS_DEC":"auto",
+      // "HOST_NAME":  "example.com",
+      // "SNI_NAME":   "example.com" #if not overrided use common 
+    }
+  ],
   "checks": ["dns", "http", "quic", "speedtest"],
   "timeout_sec": 30
 }

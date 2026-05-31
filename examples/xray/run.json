@@ -1,0 +1,12 @@
+{
+    "client_process_path": "env.XRAY_CLIENT_PATH",
+    "server_process_path": "env.XRAY_SERVER_PATH",//if empty use client_process_path
+    "client_arg":"run -c ",
+    "server_arg":"run -c ",
+
+    "vars":[
+        //override here
+    ]
+    //override other variables
+
+}

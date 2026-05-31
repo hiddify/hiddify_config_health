@@ -1,0 +1,28 @@
+{
+  "inbounds": [
+    {
+      "tag": "proxy-in",
+      "port": {{TCP_PORT}},
+      "listen": "{{LISTEN_SERVER}}",
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "{{UUID}}", 
+            "flow": "{{VLESS_FLOW}}"
+          }
+        ],
+        "decryption": "{{VLESS_DEC}}"
+      },
+      "streamSettings": {
+        {% include "../common/server/tls.json" %}
+        "network": "xhttp",
+        "xhttpSettings": {
+          "mode": "stream-up",
+          "path": "/xhttp"
+        }
+      }
+    }
+
+  ]
+}

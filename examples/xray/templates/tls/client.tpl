@@ -1,3 +1,4 @@
+{% if TLS %}
 "tlsSettings": {
   "serverName": "{{SNI_NAME}}",
   "allowInsecure": false,
@@ -7,3 +8,4 @@
     }
   ]
 },
+{%endif%}
