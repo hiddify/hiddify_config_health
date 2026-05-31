@@ -1,0 +1,17 @@
+{
+  "name": "VLESS + xHTTP (xray)",
+  "core": "xray",
+  "server_config": "server.json",
+  "client_config": "client.json",
+  "tls": true,
+  "vars": {
+    "SERVER":     "127.0.0.1",
+    "PORT":       "auto",
+    "SOCKS_PORT": "auto",
+    "UUID":       "auto",
+    "HOST_NAME":  "example.com",
+    "SNI_NAME":   "example.com"
+  },
+  "checks": ["dns", "http", "quic", "speedtest"],
+  "timeout_sec": 30
+}

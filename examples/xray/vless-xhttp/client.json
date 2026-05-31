@@ -1,0 +1,43 @@
+{
+  "log": {"loglevel": "error"},
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "port": {{SOCKS_PORT}},
+      "listen": "127.0.0.1",
+      "protocol": "socks",
+      "settings": {"auth": "noauth", "udp": true}
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "vless-out",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "{{SERVER}}",
+            "port": {{PORT}},
+            "users": [{"id": "{{UUID}}", "encryption": "none"}]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "{{SNI_NAME}}",
+          "allowInsecure": false,
+          "certificates": [{"certificateFile": "{{TLS_CA}}"}]
+        },
+        "xhttpSettings": {
+          "mode": "stream-up",
+          "host": "{{HOST_NAME}}",
+          "path": "/xhttp"
+        }
+      }
+    },
+    {"protocol": "freedom", "tag": "direct"}
+  ],
+  "routing": {"domainStrategy": "IPIfNonMatch", "rules": []}
+}

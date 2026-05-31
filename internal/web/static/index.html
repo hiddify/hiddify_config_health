@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hiddify Config Health</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;display:flex;height:100vh;overflow:hidden}
+  #sidebar{width:300px;min-width:220px;border-right:1px solid #2d3748;display:flex;flex-direction:column;overflow:hidden}
+  #sidebar h1{padding:16px;font-size:1rem;font-weight:700;color:#a78bfa;border-bottom:1px solid #2d3748;flex-shrink:0}
+  #examples{overflow-y:auto;flex:1}
+  .example{padding:12px 16px;cursor:pointer;border-bottom:1px solid #1a202c;transition:background .15s}
+  .example:hover{background:#1e2533}
+  .example.active{background:#1e2a3a}
+  .ex-name{font-weight:600;font-size:.9rem}
+  .ex-core{font-size:.75rem;color:#718096;margin-top:2px}
+  .badge{display:inline-block;padding:2px 7px;border-radius:9px;font-size:.7rem;font-weight:700;margin-top:4px}
+  .badge.pass{background:#065f46;color:#6ee7b7}
+  .badge.fail{background:#7f1d1d;color:#fca5a5}
+  .badge.running{background:#1e3a5f;color:#93c5fd;animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  #main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  #toolbar{padding:12px 16px;border-bottom:1px solid #2d3748;display:flex;gap:8px;align-items:center;flex-shrink:0}
+  #toolbar h2{flex:1;font-size:1rem;color:#a78bfa}
+  button{padding:7px 16px;border-radius:6px;border:none;cursor:pointer;font-size:.85rem;font-weight:600}
+  #btn-run{background:#6d28d9;color:#fff}
+  #btn-run:hover{background:#7c3aed}
+  #btn-run:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
+  #content{flex:1;display:flex;overflow:hidden}
+  #log-panel{flex:1;overflow-y:auto;padding:12px 16px;font-family:monospace;font-size:.8rem;background:#0d1117;line-height:1.6}
+  .log-line{white-space:pre-wrap;word-break:break-all}
+  .log-line.pass{color:#6ee7b7}
+  .log-line.fail{color:#fca5a5}
+  .log-line.info{color:#93c5fd}
+  #results-panel{width:300px;border-left:1px solid #2d3748;overflow-y:auto;padding:12px}
+  #results-panel h3{font-size:.85rem;color:#718096;margin-bottom:10px}
+  .check-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1a202c;font-size:.82rem}
+  .check-name{color:#e2e8f0}
+  .check-ok{color:#6ee7b7}
+  .check-fail{color:#fca5a5}
+  .check-extra{font-size:.72rem;color:#718096;margin-top:2px}
+  .fp-row{font-size:.78rem;padding:4px 0;color:#a0aec0}
+  .fp-badge{display:inline-block;padding:2px 8px;border-radius:9px;font-size:.75rem;font-weight:700;margin-bottom:8px}
+  .fp-opaque{background:#065f46;color:#6ee7b7}
+  .fp-blocked{background:#7f1d1d;color:#fca5a5}
+  .fp-leaking{background:#78350f;color:#fde68a}
+  .fp-recognizable{background:#1e3a5f;color:#93c5fd}
+  .history-section{margin-top:16px}
+  .history-row{font-size:.75rem;padding:4px 0;border-bottom:1px solid #1a202c;display:flex;gap:8px;align-items:center}
+  .welcome{color:#4a5568;padding:40px;text-align:center;font-size:.9rem}
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1>🛡 Hiddify Health</h1>
+  <div id="examples"><div class="welcome">Loading…</div></div>
+</div>
+
+<div id="main">
+  <div id="toolbar">
+    <h2 id="title">Select an example</h2>
+    <button id="btn-run" disabled>▶ Run</button>
+  </div>
+  <div id="content">
+    <div id="log-panel"><div class="welcome">Select an example from the sidebar, then click Run.</div></div>
+    <div id="results-panel"><h3>Results</h3><div id="checks-list"></div></div>
+  </div>
+</div>
+
+<script>
+let selectedDir = null;
+let es = null;
+
+async function loadExamples() {
+  const res = await fetch('/api/examples');
+  const items = await res.json() || [];
+  const el = document.getElementById('examples');
+  if (!items.length) { el.innerHTML='<div class="welcome">No examples found.<br>Add run.json files to the examples/ directory.</div>'; return; }
+  el.innerHTML = '';
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'example';
+    div.dataset.dir = item.dir;
+    let badge = '';
+    if (item.last_run) {
+      badge = `<span class="badge ${item.last_run.pass?'pass':'fail'}">${item.last_run.pass?'PASS':'FAIL'}</span>`;
+    }
+    div.innerHTML = `<div class="ex-name">${item.name}</div><div class="ex-core">${item.core||''}</div>${badge}`;
+    div.onclick = () => selectExample(item);
+    el.appendChild(div);
+  });
+}
+
+function selectExample(item) {
+  selectedDir = item.dir;
+  document.getElementById('title').textContent = item.name;
+  document.getElementById('btn-run').disabled = false;
+  document.querySelectorAll('.example').forEach(e => e.classList.toggle('active', e.dataset.dir === item.dir));
+  clearLog();
+  loadHistory(item.dir);
+}
+
+function clearLog() {
+  document.getElementById('log-panel').innerHTML = '';
+  document.getElementById('checks-list').innerHTML = '<h3>Results</h3>';
+}
+
+function appendLog(text, cls='') {
+  const el = document.getElementById('log-panel');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + cls;
+  line.textContent = text;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setRunning(running) {
+  const btn = document.getElementById('btn-run');
+  btn.disabled = running;
+  btn.textContent = running ? '⏳ Running…' : '▶ Run';
+  if (selectedDir) {
+    const ex = document.querySelector(`.example[data-dir="${CSS.escape(selectedDir)}"]`);
+    if (ex) {
+      const badge = ex.querySelector('.badge');
+      if (running) {
+        if (badge) badge.remove();
+        const b = document.createElement('span');
+        b.className = 'badge running'; b.textContent = 'RUNNING';
+        ex.appendChild(b);
+      }
+    }
+  }
+}
+
+document.getElementById('btn-run').onclick = () => {
+  if (!selectedDir) return;
+  if (es) { es.close(); es = null; }
+  clearLog();
+  setRunning(true);
+
+  es = new EventSource(`/api/run?dir=${encodeURIComponent(selectedDir)}`);
+
+  es.addEventListener('log', e => {
+    const t = e.data;
+    let cls = 'info';
+    if (t.includes('PASS')) cls='pass';
+    else if (t.includes('FAIL')) cls='fail';
+    appendLog(t, cls);
+  });
+
+  es.addEventListener('result', e => {
+    try {
+      const r = JSON.parse(e.data);
+      renderResults(r);
+      updateSidebarBadge(selectedDir, r.Pass);
+    } catch(_) {}
+  });
+
+  es.addEventListener('error', e => {
+    appendLog('Error: ' + (e.data||'connection lost'), 'fail');
+  });
+
+  es.addEventListener('done', () => {
+    es.close(); es = null;
+    setRunning(false);
+  });
+};
+
+function renderResults(r) {
+  const panel = document.getElementById('checks-list');
+  let html = '<h3>Results</h3>';
+
+  (r.Checks||[]).forEach(c => {
+    html += `<div class="check-row">
+      <div><div class="check-name">${c.Name}</div>${c.Extra?`<div class="check-extra">${c.Extra}</div>`:''}  </div>
+      <span class="${c.OK?'check-ok':'check-fail'}">${c.OK?'✓':'✗'}</span>
+    </div>`;
+  });
+
+  if (r.Fingerprint) {
+    const fp = r.Fingerprint;
+    const cls = 'fp-'+(fp.Verdict||'unknown');
+    html += `<div style="margin-top:12px"><div class="fp-badge ${cls}">${fp.Verdict}</div>`;
+    if (fp.HasDNSLeak) html += `<div class="fp-row">⚠ DNS leak detected</div>`;
+    if (fp.SpeedAboveMBps) html += `<div class="fp-row">⚡ Speed &gt; 1 MB/s</div>`;
+    html += `<div class="fp-row">Entropy: ${(fp.EntropyScore*100).toFixed(0)}%</div></div>`;
+  }
+
+  if (r.CoreVersion) {
+    html += `<div class="fp-row" style="margin-top:8px;color:#4a5568">${r.CoreVersion}</div>`;
+  }
+
+  panel.innerHTML = html;
+}
+
+function updateSidebarBadge(dir, pass) {
+  const ex = document.querySelector(`.example[data-dir="${CSS.escape(dir)}"]`);
+  if (!ex) return;
+  const old = ex.querySelector('.badge');
+  if (old) old.remove();
+  const b = document.createElement('span');
+  b.className = `badge ${pass?'pass':'fail'}`;
+  b.textContent = pass?'PASS':'FAIL';
+  ex.appendChild(b);
+}
+
+async function loadHistory(dir) {
+  const res = await fetch('/api/history?dir='+encodeURIComponent(dir));
+  const recs = await res.json() || [];
+  if (!recs.length) return;
+  const panel = document.getElementById('checks-list');
+  let html = panel.innerHTML;
+  html += '<div class="history-section"><h3 style="font-size:.8rem;margin-bottom:6px">History</h3>';
+  recs.slice(0,10).forEach(r => {
+    const d = new Date(r.StartedAt * 1000).toLocaleString();
+    html += `<div class="history-row">
+      <span class="${r.Pass?'check-ok':'check-fail'}">${r.Pass?'✓':'✗'}</span>
+      <span style="flex:1">${d}</span>
+      <span style="color:#4a5568">${r.DurationMs}ms</span>
+    </div>`;
+  });
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
+loadExamples();
+</script>
+</body>
+</html>

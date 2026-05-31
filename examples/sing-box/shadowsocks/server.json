@@ -1,0 +1,15 @@
+{
+  "log": {"level": "error"},
+  "inbounds": [
+    {
+      "type": "shadowsocks",
+      "tag": "ss-in",
+      "listen": "{{SERVER}}",
+      "listen_port": {{PORT}},
+      "method": "chacha20-ietf-poly1305",
+      "password": "{{PASSWORD}}"
+    }
+  ],
+  "outbounds": [{"type": "direct", "tag": "direct"}],
+  "route": {"final": "direct"}
+}

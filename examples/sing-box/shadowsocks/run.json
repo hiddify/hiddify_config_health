@@ -1,0 +1,14 @@
+{
+  "name": "Shadowsocks (sing-box)",
+  "core": "sing-box",
+  "server_config": "server.json",
+  "client_config": "client.json",
+  "vars": {
+    "SERVER":      "127.0.0.1",
+    "PORT":        "auto",
+    "SOCKS_PORT":  "auto",
+    "PASSWORD":    "auto"
+  },
+  "checks": ["dns", "http", "quic"],
+  "timeout_sec": 30
+}

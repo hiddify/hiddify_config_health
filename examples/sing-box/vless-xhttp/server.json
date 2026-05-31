@@ -1,0 +1,27 @@
+{
+  "log": {"level": "error"},
+  "dns": {
+    "servers": [{"type": "local", "tag": "default"}]
+  },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-in",
+      "listen": "{{SERVER}}",
+      "listen_port": {{PORT}},
+      "users": [{"name": "user", "uuid": "{{UUID}}"}],
+      "tls": {
+        "enabled": true,
+        "certificate_path": "{{TLS_CERT}}",
+        "key_path": "{{TLS_KEY}}"
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-up",
+        "path": "/xhttp"
+      }
+    }
+  ],
+  "outbounds": [{"type": "direct", "tag": "direct"}],
+  "route": {"final": "direct", "default_domain_resolver": "default"}
+}
