@@ -37,6 +37,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"regexp"
 
 	"github.com/flosch/pongo2/v6"
@@ -99,6 +101,62 @@ func Render(src []byte, vars map[string]string) ([]byte, map[string]string, erro
 		return nil, nil, fmt.Errorf("tmpl: json5 strip: %w", err)
 	}
 
+	return clean, resolved, nil
+}
+
+// RenderFile renders a template file using pongo2.FromFile so that
+// {% include "relative/path" %} directives resolve relative to the
+// template file's directory. Returns rendered valid-JSON bytes and
+// the fully-resolved vars map.
+func RenderFile(path string, vars map[string]string) ([]byte, map[string]string, error) {
+	// Read source so we can normalise {{KEY}} before pongo2 parses it.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tmpl: read %s: %w", path, err)
+	}
+
+	resolved, err := resolveAuto(vars)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Normalise {{KEY}} → {{ KEY }}.
+	normalised := reNoSpacePlaceholder.ReplaceAll(raw, []byte(`{{ $1 }}`))
+
+	// Write normalised source to a temp file so pongo2.FromFile can resolve
+	// includes relative to the original template's directory.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".hch-tpl-*.j2")
+	if err != nil {
+		return nil, nil, fmt.Errorf("tmpl: create temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(normalised); err != nil {
+		tmp.Close()
+		return nil, nil, err
+	}
+	tmp.Close()
+
+	tpl, err := pongo2.FromFile(tmpPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tmpl: parse %s: %w", path, err)
+	}
+
+	ctx := pongo2.Context{}
+	for k, v := range resolved {
+		ctx[k] = v
+		ctx[lowercase(k)] = v
+	}
+
+	rendered, err := tpl.ExecuteBytes(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tmpl: render %s: %w", path, err)
+	}
+
+	clean, err := json5.Strip(rendered)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tmpl: json5 strip: %w", err)
+	}
 	return clean, resolved, nil
 }
 

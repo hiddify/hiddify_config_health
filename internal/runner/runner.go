@@ -409,20 +409,66 @@ func buildTopology(cfg RunConfig, dir string) ([]nodeSpec, error) {
 
 // --- helpers ---
 
+// loadRunConfig loads run.json from dir and merges ancestor run.json files
+// (walking up the directory tree) so parent directories provide defaults.
+// Child values always win over parent values.
 func loadRunConfig(dir string) (RunConfig, error) {
-	path := filepath.Join(dir, "run.json")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return RunConfig{}, fmt.Errorf("load run.json: %w", err)
+	// Collect run.json paths from root down to dir.
+	var chain []string
+	d := filepath.Clean(dir)
+	for {
+		p := filepath.Join(d, "run.json")
+		if _, err := os.Stat(p); err == nil {
+			chain = append([]string{p}, chain...) // prepend (root first)
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			break // filesystem root
+		}
+		// Stop if there's no run.json at all in the parent — avoid reading
+		// random directories above the examples tree.
+		if _, err := os.Stat(filepath.Join(parent, "run.json")); err != nil {
+			break
+		}
+		d = parent
 	}
-	// Strip JSON5 before unmarshalling.
-	clean, err := json5.Strip(b)
-	if err != nil {
-		return RunConfig{}, fmt.Errorf("json5 strip run.json: %w", err)
+
+	if len(chain) == 0 {
+		return RunConfig{}, fmt.Errorf("run.json not found in %s", dir)
 	}
+
+	// Load and merge: start with outermost (root), override with each child.
+	var merged map[string]interface{}
+	for _, path := range chain {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return RunConfig{}, fmt.Errorf("read %s: %w", path, err)
+		}
+		clean, err := json5.Strip(b)
+		if err != nil {
+			return RunConfig{}, fmt.Errorf("json5 strip %s: %w", path, err)
+		}
+		var m map[string]interface{}
+		if err := json.Unmarshal(clean, &m); err != nil {
+			return RunConfig{}, fmt.Errorf("parse %s: %w", path, err)
+		}
+		if merged == nil {
+			merged = m
+		} else {
+			for k, v := range m {
+				// Non-empty child value wins.
+				if !isEmptyVal(v) {
+					merged[k] = v
+				}
+			}
+		}
+	}
+
+	// Re-marshal merged map into RunConfig.
+	b, _ := json.Marshal(merged)
 	var cfg RunConfig
-	if err := json.Unmarshal(clean, &cfg); err != nil {
-		return RunConfig{}, fmt.Errorf("parse run.json: %w", err)
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return RunConfig{}, fmt.Errorf("merge run.json: %w", err)
 	}
 	if len(cfg.Checks) == 0 {
 		cfg.Checks = []string{"dns", "http"}
@@ -430,12 +476,26 @@ func loadRunConfig(dir string) (RunConfig, error) {
 	return cfg, nil
 }
 
-func renderConfig(path string, vars map[string]string) ([]byte, map[string]string, error) {
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read %s: %w", path, err)
+func isEmptyVal(v interface{}) bool {
+	if v == nil {
+		return true
 	}
-	return tmpl.Render(src, vars)
+	switch t := v.(type) {
+	case string:
+		return t == ""
+	case []interface{}:
+		return len(t) == 0
+	case map[string]interface{}:
+		return len(t) == 0
+	case bool:
+		return !t
+	}
+	return false
+}
+
+func renderConfig(path string, vars map[string]string) ([]byte, map[string]string, error) {
+	// Use RenderFile so {% include "…" %} resolves relative to the template dir.
+	return tmpl.RenderFile(path, vars)
 }
 
 func writeTempConfig(content []byte, role string) (string, error) {

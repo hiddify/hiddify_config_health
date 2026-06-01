@@ -1,20 +1,29 @@
 {
+  // VLESS + xHTTP example for xray-core
+  // Inherits binary paths and deploy settings from ../run.json and ../../run.json
+  "name": "VLESS + xHTTP (xray)",
+  "server_config": "server.json", // .j2 extension resolved automatically
+  "client_config": "client.json",
+  "tls": false, // TLS injected per-variant below via TLS var
+
   "vars": [
     {
-      "TITLE": "tls", //title field is special field and will be added to parent
-      "TLS": True,
-      // "HOST_NAME":  "example.com",
-      // "SNI_NAME":   "example.com" #if not overrided use common 
-      "VLESS_ENC":"none",
-      "VLESS_DEC":"none",
+      "TITLE": "plain-tls",
+      "TLS": "1",          // enables {% if TLS %} block in templates
+      "VLESS_ENC": "none",
+      "VLESS_DEC": "none",
+      "VLESS_FLOW": "",
+      // HOST_NAME and SNI_NAME inherited from ../../run.json or set here:
+      // "HOST_NAME": "example.com",
+      // "SNI_NAME":  "example.com"
     },
     {
-      "TITLE": "vless-enc",
-      "VLESS_ENC":"auto",
-      "VLESS_DEC":"auto",
-      // "HOST_NAME":  "example.com",
-      // "SNI_NAME":   "example.com" #if not overrided use common 
-    }
+      "TITLE": "vless-flow",
+      "TLS": "1",
+      "VLESS_ENC": "none",
+      "VLESS_DEC": "none",
+      "VLESS_FLOW": "xtls-rprx-vision",
+    },
   ],
   "checks": ["dns", "http", "quic", "speedtest"],
   "timeout_sec": 30

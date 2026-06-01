@@ -15,7 +15,7 @@
         "decryption": "{{VLESS_DEC}}"
       },
       "streamSettings": {
-        {% include "../common/server/tls.json" %}
+        {% include "../templates/tls/server.tpl" %}
         "network": "xhttp",
         "xhttpSettings": {
           "mode": "stream-up",
