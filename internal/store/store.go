@@ -23,6 +23,7 @@ type Record struct {
 	ID          int64
 	ExampleDir  string
 	Name        string
+	Variant     string // empty for single-run examples
 	CoreVersion string
 	Pass        bool
 	Checks      []health.Result
@@ -62,9 +63,9 @@ func (d *DB) Save(r Record) (int64, error) {
 	checksJSON, _ := json.Marshal(r.Checks)
 	fpJSON, _ := json.Marshal(r.Fingerprint)
 	res, err := d.db.Exec(`
-		INSERT INTO runs(example_dir, name, core_version, pass, checks_json, fingerprint_json, log, started_at, duration_ms)
-		VALUES (?,?,?,?,?,?,?,?,?)`,
-		r.ExampleDir, r.Name, r.CoreVersion,
+		INSERT INTO runs(example_dir, name, variant, core_version, pass, checks_json, fingerprint_json, log, started_at, duration_ms)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		r.ExampleDir, r.Name, r.Variant, r.CoreVersion,
 		boolInt(r.Pass), string(checksJSON), string(fpJSON),
 		r.Log, r.StartedAt.UTC().Unix(), r.DurationMs,
 	)
@@ -82,7 +83,7 @@ func (d *DB) History(exampleDir string, n int) ([]Record, error) {
 		limit = n
 	}
 	rows, err := d.db.Query(`
-		SELECT id, example_dir, name, core_version, pass, checks_json, fingerprint_json, log, started_at, duration_ms
+		SELECT id, example_dir, name, variant, core_version, pass, checks_json, fingerprint_json, log, started_at, duration_ms
 		FROM runs WHERE example_dir = ?
 		ORDER BY started_at DESC LIMIT ?`, exampleDir, limit)
 	if err != nil {
@@ -95,7 +96,7 @@ func (d *DB) History(exampleDir string, n int) ([]Record, error) {
 // AllLatest returns the most recent record for every distinct example_dir.
 func (d *DB) AllLatest() ([]Record, error) {
 	rows, err := d.db.Query(`
-		SELECT id, example_dir, name, core_version, pass, checks_json, fingerprint_json, log, started_at, duration_ms
+		SELECT id, example_dir, name, variant, core_version, pass, checks_json, fingerprint_json, log, started_at, duration_ms
 		FROM runs
 		WHERE id IN (SELECT MAX(id) FROM runs GROUP BY example_dir)
 		ORDER BY started_at DESC`)
@@ -113,7 +114,7 @@ func scanRecords(rows *sql.Rows) ([]Record, error) {
 		var passInt int
 		var checksJSON, fpJSON string
 		var startedAt int64
-		if err := rows.Scan(&r.ID, &r.ExampleDir, &r.Name, &r.CoreVersion,
+		if err := rows.Scan(&r.ID, &r.ExampleDir, &r.Name, &r.Variant, &r.CoreVersion,
 			&passInt, &checksJSON, &fpJSON, &r.Log, &startedAt, &r.DurationMs); err != nil {
 			return nil, err
 		}
@@ -132,6 +133,7 @@ func migrate(db *sql.DB) error {
 			id               INTEGER PRIMARY KEY AUTOINCREMENT,
 			example_dir      TEXT NOT NULL,
 			name             TEXT NOT NULL DEFAULT '',
+			variant          TEXT NOT NULL DEFAULT '',
 			core_version     TEXT NOT NULL DEFAULT '',
 			pass             INTEGER NOT NULL DEFAULT 0,
 			checks_json      TEXT NOT NULL DEFAULT '[]',

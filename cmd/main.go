@@ -86,6 +86,7 @@ func runOne(ctx context.Context, dir string, db *store.DB) error {
 			rec := store.Record{
 				ExampleDir:  dir,
 				Name:        res.Name,
+				Variant:     res.Variant,
 				CoreVersion: res.CoreVersion,
 				Pass:        res.Pass,
 				Checks:      res.Checks,
@@ -225,7 +226,7 @@ func historyCmd() *cobra.Command {
 			defer db.Close()
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tDIR\tRESULT\tCORE\tSTARTED\tDURATION")
+			fmt.Fprintln(w, "ID\tDIR\tVARIANT\tRESULT\tCORE\tSTARTED\tDURATION")
 
 			var recs []store.Record
 			if len(args) > 0 {
@@ -241,8 +242,8 @@ func historyCmd() *cobra.Command {
 				if !r.Pass {
 					result = "FAIL"
 				}
-				fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%dms\n",
-					r.ID, r.ExampleDir, result, r.CoreVersion,
+				fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%dms\n",
+					r.ID, r.ExampleDir, r.Variant, result, r.CoreVersion,
 					r.StartedAt.Format("2006-01-02 15:04:05"),
 					r.DurationMs)
 			}

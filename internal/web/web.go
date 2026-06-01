@@ -143,6 +143,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			rec := store.Record{
 				ExampleDir:  dir,
 				Name:        res.Name,
+				Variant:     res.Variant,
 				CoreVersion: res.CoreVersion,
 				Pass:        res.Pass,
 				Checks:      res.Checks,
