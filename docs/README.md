@@ -5,6 +5,7 @@
 | [quickstart.md](quickstart.md) | Install, first run, web UI |
 | [run-json.md](run-json.md) | `run.json` full schema reference |
 | [placeholders.md](placeholders.md) | `{{PLACEHOLDER}}` variables |
+| [templates.md](templates.md) | Pongo2/Jinja2 syntax + JSON5 features |
 | [cores.md](cores.md) | sing-box / xray / hiddify-core setup |
 | [examples.md](examples.md) | Writing and structuring examples |
 | [health-checks.md](health-checks.md) | DNS / HTTP / QUIC / ping / speedtest |

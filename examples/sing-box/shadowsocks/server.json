@@ -1,15 +1,19 @@
 {
+  // sing-box shadowsocks server config
+  // All {{KEY}} values are auto-substituted by hiddify-health before launch.
   "log": {"level": "error"},
+
   "inbounds": [
     {
       "type": "shadowsocks",
-      "tag": "ss-in",
-      "listen": "{{SERVER}}",
-      "listen_port": {{PORT}},
-      "method": "chacha20-ietf-poly1305",
-      "password": "{{PASSWORD}}"
-    }
+      "tag":  "ss-in",
+      "listen":      "{{ SERVER }}",
+      "listen_port": {{ PORT }},         // integer — no quotes
+      "method":      "chacha20-ietf-poly1305",
+      "password":    "{{ PASSWORD }}",
+    },
   ],
+
   "outbounds": [{"type": "direct", "tag": "direct"}],
-  "route": {"final": "direct"}
+  "route": {"final": "direct"},
 }

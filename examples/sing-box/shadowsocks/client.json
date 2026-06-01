@@ -1,30 +1,35 @@
 {
+  // sing-box shadowsocks client config
   "log": {"level": "error"},
   "dns": {
-    "servers": [{"type": "local", "tag": "default"}]
+    "servers": [{"type": "local", "tag": "default"}],
   },
+
   "inbounds": [
     {
-      "type": "mixed",
-      "tag": "mixed-in",
-      "listen": "127.0.0.1",
-      "listen_port": {{SOCKS_PORT}}
-    }
+      # SOCKS5 proxy — health checks connect here
+      "type":        "mixed",
+      "tag":         "mixed-in",
+      "listen":      "127.0.0.1",
+      "listen_port": {{ SOCKS_PORT }},  // auto-assigned
+    },
   ],
+
   "outbounds": [
     {
-      "type": "shadowsocks",
-      "tag": "ss-out",
-      "server": "{{SERVER}}",
-      "server_port": {{PORT}},
-      "method": "chacha20-ietf-poly1305",
-      "password": "{{PASSWORD}}"
+      "type":        "shadowsocks",
+      "tag":         "ss-out",
+      "server":      "{{ SERVER }}",
+      "server_port": {{ PORT }},
+      "method":      "chacha20-ietf-poly1305",
+      "password":    "{{ PASSWORD }}",
     },
-    {"type": "direct", "tag": "direct"}
+    {"type": "direct", "tag": "direct"},
   ],
+
   "route": {
-    "final": "ss-out",
+    "final":                  "ss-out",
     "default_domain_resolver": "default",
-    "auto_detect_interface": true
-  }
+    "auto_detect_interface":   true,
+  },
 }
