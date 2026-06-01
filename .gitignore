@@ -1,0 +1,23 @@
+# Build output
+hiddify-health
+hiddify-health.exe
+dist/
+
+# Test / temp artifacts
+*.db
+*.pem
+*.key
+/tmp/hch-*
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go test cache
+*.test
+*.prof
