@@ -1,25 +1,31 @@
 {
-  "deploy_to_server":"",//or ssh://user:pass@host:port/path
+  // Root common config — inherited by all examples under examples/.
+  // Add SERVER variants here to test the same protocol against multiple servers.
+
+  "deploy_to_server": "", // or "ssh://user:pass@host:port"
+
   "vars": [
     {
-      "TITLE": "T1",
-      "SERVER":     "127.0.0.1", //or 
+      "TITLE":      "local",
+      "SERVER":     "127.0.0.1",
       "PORT":       "auto",
       "SOCKS_PORT": "auto",
       "UUID":       "auto",
-      // "HOST_NAME":  "example.com",
-      // "SNI_NAME":   "example.com" #if not overrided use common 
+      "PASSWORD":   "auto",
+      // "HOST_NAME": "example.com",
+      // "SNI_NAME":  "example.com",
     },
-    {
-      "TITLE": "T2",
-      "SERVER":     "127.0.0.1", //or 
-      "PORT":       "auto",
-      "SOCKS_PORT": "auto",
-      "UUID":       "auto",
-      // "HOST_NAME":  "example.com",
-      // "SNI_NAME":   "example.com" #if not overrided use common 
-    },
+    // Add more entries to test against additional servers, e.g.:
+    // {
+    //   "TITLE":  "remote",
+    //   "SERVER": "203.0.113.10",
+    //   "PORT":   "auto",
+    //   "SOCKS_PORT": "auto",
+    //   "UUID":   "auto",
+    //   "PASSWORD": "auto",
+    // },
   ],
-  "checks": ["dns", "http", "quic", "speedtest"],
-  "timeout_sec": 30
+
+  "checks":      ["dns", "http", "quic"],
+  "timeout_sec": 30,
 }

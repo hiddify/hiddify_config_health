@@ -1,17 +1,20 @@
 {
+  // VLESS + xHTTP example for sing-box
+  // SERVER, PORT, SOCKS_PORT, UUID inherited from ../../run.json
   "name": "VLESS + xHTTP (sing-box)",
   "core": "sing-box",
   "server_config": "server.json",
   "client_config": "client.json",
-  "tls": true,
-  "vars": {
-    "SERVER":     "127.0.0.1",
-    "PORT":       "auto",
-    "SOCKS_PORT": "auto",
-    "UUID":       "auto",
-    "HOST_NAME":  "example.com",
-    "SNI_NAME":   "example.com"
-  },
+  "tls": true,  // auto-generate self-signed cert bundle
+
+  "vars": [
+    {
+      "TITLE": "plain-tls",
+      "HOST_NAME": "example.com",
+      "SNI_NAME":  "example.com",
+    },
+  ],
+
   "checks": ["dns", "http", "quic", "speedtest"],
-  "timeout_sec": 30
+  "timeout_sec": 30,
 }
