@@ -49,11 +49,15 @@ import (
 
 // KnownVars lists standard placeholder keys recognised by the runner.
 var KnownVars = []string{
-	"SERVER", "PORT", "SOCKS_PORT",
+	"SERVER", "LISTEN_SERVER",
+	"PORT", "TCP_PORT", "UDP_PORT", "QUIC_PORT", "SOCKS_PORT",
 	"UUID", "PASSWORD",
 	"HOST_NAME", "SNI_NAME",
 	"TLS_CERT", "TLS_KEY", "TLS_CA", "CA_FINGERPRINT",
 	"UPSTREAM_SERVER", "UPSTREAM_PORT",
+	"LOG_LEVEL",
+	// Protocol-specific
+	"VLESS_FLOW", "VLESS_ENC", "VLESS_DEC",
 }
 
 // reNoSpacePlaceholder matches {{KEY}} or {{KEY}} patterns without spaces
@@ -167,7 +171,8 @@ func resolveAuto(vars map[string]string) (map[string]string, error) {
 		out[k] = v
 	}
 
-	for _, k := range []string{"PORT", "SOCKS_PORT", "UPSTREAM_PORT"} {
+	// All recognized port vars — "auto" gets a random free port each.
+	for _, k := range []string{"PORT", "TCP_PORT", "UDP_PORT", "SOCKS_PORT", "UPSTREAM_PORT", "QUIC_PORT"} {
 		if out[k] == "auto" {
 			p, err := freePort()
 			if err != nil {
@@ -175,6 +180,23 @@ func resolveAuto(vars map[string]string) (map[string]string, error) {
 			}
 			out[k] = fmt.Sprintf("%d", p)
 		}
+	}
+
+	// Alias propagation: if a canonical var is set but its alias is not,
+	// copy the canonical value so templates can use either name.
+	aliases := [][2]string{
+		{"SERVER", "LISTEN_SERVER"}, // server-side listen addr
+	}
+	for _, pair := range aliases {
+		canon, alias := pair[0], pair[1]
+		if out[alias] == "" && out[canon] != "" {
+			out[alias] = out[canon]
+		}
+	}
+
+	// Sensible defaults for vars that templates use but callers rarely set.
+	if out["LOG_LEVEL"] == "" {
+		out["LOG_LEVEL"] = "error"
 	}
 
 	if out["UUID"] == "auto" {
