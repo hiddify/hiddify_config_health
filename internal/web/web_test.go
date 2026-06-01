@@ -32,6 +32,8 @@ func TestHandleExamples_WithRunJSON(t *testing.T) {
 	exDir := filepath.Join(root, "sing-box", "shadowsocks")
 	os.MkdirAll(exDir, 0o755)
 	os.WriteFile(filepath.Join(exDir, "run.json"), []byte(`{"name":"Shadowsocks","core":"sing-box"}`), 0o644)
+	// Add a sibling config file so hasConfigFiles returns true.
+	os.WriteFile(filepath.Join(exDir, "server.json"), []byte(`{}`), 0o644)
 
 	srv := &Server{ExamplesDir: root}
 	req := httptest.NewRequest(http.MethodGet, "/api/examples", nil)

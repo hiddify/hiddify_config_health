@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hiddify/hiddify_config_health/internal/json5"
 	"github.com/hiddify/hiddify_config_health/internal/runner"
 	"github.com/hiddify/hiddify_config_health/internal/store"
 )
@@ -216,15 +217,24 @@ func scanExamples(root string) ([]exampleEntry, error) {
 			return nil
 		}
 		dir := filepath.Dir(path)
+		// Skip inheritance-only run.json files (no sibling config files).
+		if !hasConfigFiles(dir) {
+			return nil
+		}
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return nil
+		}
+		// Strip JSON5 before parsing so comments/trailing commas don't fail.
+		clean, err := json5.Strip(b)
+		if err != nil {
+			clean = b // fallback to raw
 		}
 		var rc struct {
 			Name string `json:"name"`
 			Core string `json:"core"`
 		}
-		_ = json.Unmarshal(b, &rc)
+		_ = json.Unmarshal(clean, &rc)
 		if rc.Name == "" {
 			rc.Name = filepath.Base(dir)
 		}
@@ -232,6 +242,29 @@ func scanExamples(root string) ([]exampleEntry, error) {
 		return nil
 	})
 	return out, err
+}
+
+// hasConfigFiles reports whether dir has at least one config file
+// (*.json, *.j2, *.tpl) other than run.json itself.
+func hasConfigFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if name == "run.json" {
+			continue
+		}
+		switch filepath.Ext(name) {
+		case ".json", ".j2", ".tpl":
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
