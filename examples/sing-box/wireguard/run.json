@@ -1,0 +1,25 @@
+{
+  // WireGuard example for sing-box
+  // SERVER, PORT, SOCKS_PORT inherited from ../../run.json
+  // WireGuard key pairs must be provided — generate with:
+  //   wg genkey | tee server.key | wg pubkey > server.pub
+  //   wg genkey | tee client.key | wg pubkey > client.pub
+  "name": "WireGuard (sing-box)",
+  "core": "sing-box",
+  "server_config": "server.json",
+  "client_config": "client.json",
+
+  "vars": [
+    {
+      "TITLE": "wg-test",
+      // WireGuard key pairs — set via env or here directly:
+      // "WG_SERVER_PRIVKEY": "<base64 server private key>",
+      // "WG_SERVER_PUBKEY":  "<base64 server public key>",
+      // "WG_CLIENT_PRIVKEY": "<base64 client private key>",
+      // "WG_CLIENT_PUBKEY":  "<base64 client public key>",
+    },
+  ],
+
+  "checks": ["dns", "http"],
+  "timeout_sec": 30,
+}

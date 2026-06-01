@@ -1,0 +1,36 @@
+{
+  // sing-box WireGuard client config
+  "log": {"level": "error"},
+  "dns": {
+    "servers": [{"type": "local", "tag": "default"}],
+  },
+
+  "inbounds": [
+    {
+      "type":        "mixed",
+      "tag":         "mixed-in",
+      "listen":      "127.0.0.1",
+      "listen_port": {{ SOCKS_PORT }},
+    }
+  ],
+
+  "outbounds": [
+    {
+      "type": "wireguard",
+      "tag":  "wg-out",
+      "server":      "{{ SERVER }}",
+      "server_port": {{ PORT }},
+      "private_key": "{{ WG_CLIENT_PRIVKEY }}",
+      "peer_public_key": "{{ WG_SERVER_PUBKEY }}",
+      "address":     ["10.0.0.2/24"],
+      "mtu":         1420,
+    },
+    {"type": "direct", "tag": "direct"},
+  ],
+
+  "route": {
+    "final":                  "wg-out",
+    "default_domain_resolver": "default",
+    "auto_detect_interface":   true,
+  },
+}

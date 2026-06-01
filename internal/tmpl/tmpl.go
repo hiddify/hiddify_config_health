@@ -58,6 +58,9 @@ var KnownVars = []string{
 	"LOG_LEVEL",
 	// Protocol-specific
 	"VLESS_FLOW", "VLESS_ENC", "VLESS_DEC",
+	// WireGuard
+	"WG_SERVER_PRIVKEY", "WG_SERVER_PUBKEY",
+	"WG_CLIENT_PRIVKEY", "WG_CLIENT_PUBKEY",
 }
 
 // reNoSpacePlaceholder matches {{KEY}} or {{KEY}} patterns without spaces
