@@ -19,6 +19,7 @@ import (
 	"github.com/hiddify/hiddify_config_health/internal/detect"
 	"github.com/hiddify/hiddify_config_health/internal/health"
 	"github.com/hiddify/hiddify_config_health/internal/json5"
+	"github.com/hiddify/hiddify_config_health/internal/jsonmerge"
 	"github.com/hiddify/hiddify_config_health/internal/tmpl"
 )
 
@@ -589,9 +590,78 @@ func isEmptyVal(v interface{}) bool {
 	return false
 }
 
+// renderConfig renders path as a Pongo2 template, then checks whether a
+// base template exists at <parent>/templates/base/<role>.json.j2 and, if
+// so, renders it too and deep-merges (base = defaults, protocol = overrides).
 func renderConfig(path string, vars map[string]string) ([]byte, map[string]string, error) {
-	// Use RenderFile so {% include "…" %} resolves relative to the template dir.
-	return tmpl.RenderFile(path, vars)
+	rendered, resolved, err := tmpl.RenderFile(path, vars)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Determine role from filename: "server*" → server, otherwise client.
+	role := "client"
+	base := filepath.Base(path)
+	if strings.HasPrefix(base, "server") {
+		role = "server"
+	}
+
+	// Look for <example-parent>/templates/base/<role>.json.j2
+	baseTpl := findBaseTemplate(filepath.Dir(path), role)
+	if baseTpl == "" {
+		return rendered, resolved, nil
+	}
+
+	baseRendered, _, err := tmpl.RenderFile(baseTpl, resolved)
+	if err != nil {
+		// Non-fatal: base template render failure just skips merging.
+		return rendered, resolved, nil
+	}
+
+	// Only merge when rendered output is a valid JSON object.
+	if !isJSONObject(rendered) || !isJSONObject(baseRendered) {
+		return rendered, resolved, nil
+	}
+
+	merged, err := jsonmerge.Merge(baseRendered, rendered)
+	if err != nil {
+		return rendered, resolved, nil
+	}
+	return merged, resolved, nil
+}
+
+// findBaseTemplate walks up from dir looking for
+//
+//	<dir>/../templates/base/<role>.json.j2
+//	<dir>/../../templates/base/<role>.json.j2
+//
+// Returns empty string if not found.
+func findBaseTemplate(dir, role string) string {
+	d := filepath.Clean(dir)
+	for i := 0; i < 4; i++ {
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		for _, ext := range []string{".json.j2", ".j2", ".tpl", ".json"} {
+			candidate := filepath.Join(parent, "templates", "base", role+ext)
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
+		d = parent
+	}
+	return ""
+}
+
+func isJSONObject(b []byte) bool {
+	for _, c := range b {
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			continue
+		}
+		return c == '{'
+	}
+	return false
 }
 
 func writeTempConfig(content []byte, role string) (string, error) {
