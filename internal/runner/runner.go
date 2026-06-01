@@ -437,8 +437,17 @@ func loadRunConfig(dir string) (RunConfig, error) {
 		return RunConfig{}, fmt.Errorf("run.json not found in %s", dir)
 	}
 
-	// Load and merge: start with outermost (root), override with each child.
-	var merged map[string]interface{}
+	// Load each level as raw map, accumulate scalar fields and vars separately.
+	// Scalar fields: child wins if non-empty.
+	// Vars (array or map): flatten all ancestor variants into a base-vars map,
+	// then merge into each child variant so child vars always win.
+
+	type level struct {
+		raw      map[string]interface{}
+		baseVars map[string]string // common vars from this level's variants
+	}
+
+	levels := make([]level, 0, len(chain))
 	for _, path := range chain {
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -452,19 +461,36 @@ func loadRunConfig(dir string) (RunConfig, error) {
 		if err := json.Unmarshal(clean, &m); err != nil {
 			return RunConfig{}, fmt.Errorf("parse %s: %w", path, err)
 		}
-		if merged == nil {
-			merged = m
-		} else {
-			for k, v := range m {
-				// Non-empty child value wins.
-				if !isEmptyVal(v) {
-					merged[k] = v
-				}
+		levels = append(levels, level{raw: m, baseVars: flattenVars(m["vars"])})
+	}
+
+	// Merge scalar fields root → child.
+	merged := make(map[string]interface{})
+	for _, lv := range levels {
+		for k, v := range lv.raw {
+			if k == "vars" {
+				continue // handled separately below
+			}
+			if !isEmptyVal(v) {
+				merged[k] = v
 			}
 		}
 	}
 
-	// Re-marshal merged map into RunConfig.
+	// Merge vars: each child variant gets ancestor base vars as defaults.
+	// Build cumulative base from all ancestor levels (not the final child).
+	ancestorBase := make(map[string]string)
+	for _, lv := range levels[:len(levels)-1] {
+		for k, v := range lv.baseVars {
+			ancestorBase[k] = v
+		}
+	}
+
+	// Child (final level) variants inherit ancestorBase; child vars win.
+	childVars := levels[len(levels)-1].raw["vars"]
+	merged["vars"] = injectBaseIntoVars(childVars, ancestorBase)
+
+	// Re-marshal into RunConfig.
 	b, _ := json.Marshal(merged)
 	var cfg RunConfig
 	if err := json.Unmarshal(b, &cfg); err != nil {
@@ -474,6 +500,76 @@ func loadRunConfig(dir string) (RunConfig, error) {
 		cfg.Checks = []string{"dns", "http"}
 	}
 	return cfg, nil
+}
+
+// flattenVars extracts a single merged map from a vars array or map,
+// stripping TITLE keys. Used to build ancestor defaults.
+func flattenVars(raw interface{}) map[string]string {
+	out := make(map[string]string)
+	switch v := raw.(type) {
+	case map[string]interface{}:
+		for k, val := range v {
+			if k != "TITLE" {
+				out[k] = anyStr(val)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			for k, val := range m {
+				if k != "TITLE" {
+					out[k] = anyStr(val)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// injectBaseIntoVars prepends base vars into each variant (base = defaults,
+// variant vars win on conflict). Returns the modified vars value suitable
+// for re-marshalling into RunConfig.VarsRaw.
+func injectBaseIntoVars(childVarsRaw interface{}, base map[string]string) interface{} {
+	if len(base) == 0 {
+		return childVarsRaw
+	}
+
+	inject := func(m map[string]interface{}) map[string]interface{} {
+		out := make(map[string]interface{}, len(base)+len(m))
+		for k, v := range base {
+			out[k] = v
+		}
+		for k, v := range m { // child wins
+			out[k] = v
+		}
+		return out
+	}
+
+	switch v := childVarsRaw.(type) {
+	case map[string]interface{}:
+		return inject(v)
+	case []interface{}:
+		result := make([]interface{}, len(v))
+		for i, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				result[i] = inject(m)
+			} else {
+				result[i] = item
+			}
+		}
+		return result
+	case nil:
+		// No child vars — return base as a single variant map.
+		out := make(map[string]interface{}, len(base))
+		for k, v := range base {
+			out[k] = v
+		}
+		return out
+	}
+	return childVarsRaw
 }
 
 func isEmptyVal(v interface{}) bool {
