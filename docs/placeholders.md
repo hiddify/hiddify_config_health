@@ -1,80 +1,103 @@
 # Placeholders
 
-Config templates use `{{KEY}}` syntax. The runner replaces every occurrence
-before writing the rendered config to a temp file. JSON comments are stripped
-and integers are written without quotes — make sure your template omits quotes
-around numeric placeholders:
+Config templates use `{{KEY}}` syntax (or Pongo2's `{{ KEY }}`). The runner
+resolves every placeholder before the config reaches the core process.
+JSON5 comments are stripped after rendering. Integers must not be quoted:
 
-```json
+```json5
 {"listen_port": {{PORT}}}       ✓  integer
 {"listen_port": "{{PORT}}"}     ✗  string — most cores reject this
 ```
 
-## Standard placeholders
+See [templates.md](templates.md) for the full Pongo2/Jinja2 syntax reference.
+
+---
+
+## Network
 
 | Placeholder | Description | `"auto"` resolution |
 |---|---|---|
-| `{{SERVER}}` | Server IP / hostname | — (set explicitly) |
-| `{{PORT}}` | Server listen port | Random free TCP port |
+| `{{SERVER}}` | Server IP / hostname for outbounds | — (set explicitly) |
+| `{{LISTEN_SERVER}}` | Server-side listen address (alias of `SERVER`) | Copied from `SERVER` when unset |
+| `{{PORT}}` | Main server listen port | Random free TCP port |
+| `{{TCP_PORT}}` | Explicit TCP port (alias of `PORT`) | Random free TCP port |
+| `{{UDP_PORT}}` | UDP-specific port | Random free UDP port |
+| `{{QUIC_PORT}}` | QUIC-specific port | Random free port |
 | `{{SOCKS_PORT}}` | Client SOCKS5 listen port | Random free TCP port |
-| `{{UUID}}` | VLESS / VMess user UUID | `uuid.New()` |
-| `{{PASSWORD}}` | Shadowsocks / Trojan password | 16-byte random hex |
-| `{{HOST_NAME}}` | HTTP Host header / xHTTP host | — |
-| `{{SNI_NAME}}` | TLS SNI server name | — |
-| `{{UPSTREAM_SERVER}}` | Server address from previous topology node | Propagated automatically |
-| `{{UPSTREAM_PORT}}` | Port from previous topology node | Propagated automatically |
+| `{{UPSTREAM_SERVER}}` | Previous topology node's server address | Propagated from chain |
+| `{{UPSTREAM_PORT}}` | Previous topology node's port | Propagated from chain |
 
-## TLS placeholders (requires `"tls": true` in run.json)
+---
 
-| Placeholder | Value injected |
-|---|---|
-| `{{TLS_CERT}}` | Absolute path to leaf `cert.pem` |
-| `{{TLS_KEY}}` | Absolute path to leaf `key.pem` |
-| `{{TLS_CA}}` | Absolute path to CA `ca.pem` |
-| `{{CA_FINGERPRINT}}` | SHA-256 hex of CA DER (64 chars, no colons) |
+## Identity
 
-Example server config using TLS placeholders (sing-box):
+| Placeholder | Description | `"auto"` resolution |
+|---|---|---|
+| `{{UUID}}` | VLESS / VMess user UUID | `uuid.New()` v4 |
+| `{{PASSWORD}}` | Shadowsocks / Trojan / HTTP password | 16 random bytes, hex-encoded |
 
-```json
-"tls": {
-  "enabled": true,
-  "certificate_path": "{{TLS_CERT}}",
-  "key_path": "{{TLS_KEY}}"
-}
-```
+---
 
-Example client config trusting the generated CA:
+## TLS
 
-```json
-"tls": {
-  "enabled": true,
-  "server_name": "{{SNI_NAME}}",
-  "certificate_path": "{{TLS_CA}}"
-}
-```
+| Placeholder | Description | `"auto"` resolution |
+|---|---|---|
+| `{{HOST_NAME}}` | HTTP Host header / xHTTP host | — (set explicitly) |
+| `{{SNI_NAME}}` | TLS SNI server name | — (set explicitly) |
+| `{{TLS_CERT}}` | Absolute path to leaf `cert.pem` | Injected when `"tls": true` |
+| `{{TLS_KEY}}` | Absolute path to leaf `key.pem` | Injected when `"tls": true` |
+| `{{TLS_CA}}` | Absolute path to CA `ca.pem` | Injected when `"tls": true` |
+| `{{CA_FINGERPRINT}}` | SHA-256 hex of CA cert DER (64 chars, no colons) | Injected when `"tls": true` |
 
-## Adding custom placeholders
+---
 
-Any key added to `vars` in `run.json` becomes available as `{{KEY}}`:
+## Protocol-specific (VLESS / XTLS)
 
-```json
+| Placeholder | Description | Example value |
+|---|---|---|
+| `{{VLESS_FLOW}}` | XTLS flow mode | `xtls-rprx-vision` or `""` |
+| `{{VLESS_ENC}}` | Client-side encryption setting | `none` |
+| `{{VLESS_DEC}}` | Server-side decryption setting | `none` |
+
+---
+
+## System
+
+| Placeholder | Description | Default |
+|---|---|---|
+| `{{LOG_LEVEL}}` | Core log verbosity | `error` (set automatically if unset) |
+
+---
+
+## Custom placeholders
+
+Any key in `vars` becomes a placeholder:
+
+```json5
+// run.json
 "vars": {
-  "OBFS_HOST": "www.bing.com",
+  "OBFS_HOST":    "www.bing.com",
   "REALITY_DEST": "www.google.com:443"
 }
 ```
 
-```json
-"obfs": {"type": "http", "host": "{{OBFS_HOST}}"}
+```json5
+// template
+"obfs": {"type": "http", "host": "{{ OBFS_HOST }}"}
 ```
 
-Keys are case-sensitive. Placeholders with no matching var entry are left
-verbatim in the rendered config (useful for spotting misconfigured templates).
+Custom keys can be uppercase or lowercase — both `{{ OBFS_HOST }}` and
+`{{ obfs_host }}` resolve the same value.
+
+---
 
 ## Resolution order
 
-1. Explicit value in `vars` (highest priority).
-2. `"auto"` → resolved at runtime.
-3. TLS vars injected when `"tls": true`.
-4. `{{UPSTREAM_SERVER}}` / `{{UPSTREAM_PORT}}` injected from topology chain.
-5. Unknown key → placeholder left unchanged.
+1. Explicit value in variant `vars` (highest priority)
+2. Value inherited from ancestor `run.json` (parent/grandparent dirs)
+3. `"auto"` → runtime resolution (port / UUID / password)
+4. Alias propagation (`LISTEN_SERVER` ← `SERVER`, etc.)
+5. Defaults (`LOG_LEVEL` → `"error"`)
+6. TLS bundle paths injected when `"tls": true`
+7. Topology chain (`UPSTREAM_SERVER` / `UPSTREAM_PORT`)
+8. Unknown key → placeholder left verbatim (visible in output for debugging)
