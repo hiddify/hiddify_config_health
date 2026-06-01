@@ -161,11 +161,17 @@ document.getElementById('btn-run').onclick = () => {
 
   es.addEventListener('error', e => {
     appendLog('Error: ' + (e.data||'connection lost'), 'fail');
+    if (e.type === 'error' && (!e.data)) {
+      // Network-level SSE error (not an application error event) — stop.
+      if (es) { es.close(); es = null; }
+      setRunning(false);
+    }
   });
 
   es.addEventListener('done', () => {
     es.close(); es = null;
     setRunning(false);
+    if (selectedDir) loadHistory(selectedDir);
   });
 };
 
@@ -228,10 +234,14 @@ function updateSidebarBadge(dir, pass) {
 async function loadHistory(dir) {
   const res = await fetch('/api/history?dir='+encodeURIComponent(dir));
   const recs = await res.json() || [];
-  if (!recs.length) return;
   const panel = document.getElementById('checks-list');
-  let html = panel.innerHTML;
-  html += '<div class="history-section"><h3 style="font-size:.8rem;margin-bottom:6px">History</h3>';
+  // Remove existing history section before re-appending.
+  const old = panel.querySelector('.history-section');
+  if (old) old.remove();
+  if (!recs.length) return;
+  const section = document.createElement('div');
+  section.className = 'history-section';
+  let html = '<h3 style="font-size:.8rem;margin-bottom:6px">History</h3>';
   recs.slice(0,10).forEach(r => {
     const d = new Date(r.StartedAt * 1000).toLocaleString();
     const vLabel = r.Variant ? `<span style="color:#a78bfa;font-size:.7rem">${r.Variant}</span> ` : '';
@@ -241,8 +251,8 @@ async function loadHistory(dir) {
       <span style="color:#4a5568">${r.DurationMs}ms</span>
     </div>`;
   });
-  html += '</div>';
-  panel.innerHTML = html;
+  section.innerHTML = html;
+  panel.appendChild(section);
 }
 
 loadExamples();
