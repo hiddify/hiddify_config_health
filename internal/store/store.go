@@ -144,7 +144,38 @@ func migrate(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_runs_dir ON runs(example_dir);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// Add columns introduced after initial schema — safe to call on existing DBs.
+	addColumns := []string{
+		`ALTER TABLE runs ADD COLUMN variant TEXT NOT NULL DEFAULT ''`,
+	}
+	for _, stmt := range addColumns {
+		if _, err := db.Exec(stmt); err != nil {
+			// SQLite returns an error when the column already exists; ignore it.
+			if !isColumnExistsErr(err) {
+				return fmt.Errorf("migrate: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+func isColumnExistsErr(err error) bool {
+	return err != nil && (contains(err.Error(), "duplicate column name") ||
+		contains(err.Error(), "already exists"))
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(s) > 0 && func() bool {
+		for i := 0; i <= len(s)-len(sub); i++ {
+			if s[i:i+len(sub)] == sub {
+				return true
+			}
+		}
+		return false
+	}())
 }
 
 func boolInt(b bool) int {
