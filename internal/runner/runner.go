@@ -18,12 +18,14 @@ import (
 	"github.com/hiddify/hiddify_config_health/internal/core"
 	"github.com/hiddify/hiddify_config_health/internal/detect"
 	"github.com/hiddify/hiddify_config_health/internal/health"
+	"github.com/hiddify/hiddify_config_health/internal/json5"
 	"github.com/hiddify/hiddify_config_health/internal/tmpl"
 )
 
 // Result is the outcome of one complete example run.
 type Result struct {
 	Name        string
+	Variant     string
 	Dir         string
 	Pass        bool
 	Checks      []health.Result
@@ -35,26 +37,55 @@ type Result struct {
 	Err         error
 }
 
-// Run loads run.json from dir and executes the full test pipeline, streaming
-// log lines to out (nil = discard).
-func Run(ctx context.Context, dir string, out io.Writer) (*Result, error) {
+// Run loads run.json from dir and executes the full test pipeline once per
+// variant (vars array entry). Returns one Result per variant.
+// Streams log to out (nil = discard).
+func Run(ctx context.Context, dir string, out io.Writer) ([]*Result, error) {
 	if out == nil {
 		out = io.Discard
 	}
-	log := newLogWriter(out)
 
 	cfg, err := loadRunConfig(dir)
 	if err != nil {
 		return nil, err
 	}
 
+	variants := cfg.Variants()
+	results := make([]*Result, 0, len(variants))
+	for _, v := range variants {
+		r, _ := runVariant(ctx, dir, cfg, v, out)
+		results = append(results, r)
+	}
+	return results, nil
+}
+
+// RunFirst is a convenience wrapper that runs only the first variant and
+// returns a single Result — preserves backward compatibility with callers
+// that don't care about multi-variant.
+func RunFirst(ctx context.Context, dir string, out io.Writer) (*Result, error) {
+	results, err := Run(ctx, dir, out)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no variants in %s", dir)
+	}
+	return results[0], nil
+}
+
+func runVariant(ctx context.Context, dir string, cfg RunConfig, v Variant, out io.Writer) (*Result, error) {
+	log := newLogWriter(out)
+	if len(cfg.Variants()) > 1 {
+		log.Printf("=== variant: %s ===", v.Title)
+	}
+
 	start := time.Now()
 	res := &Result{
 		Name:      cfg.Name,
+		Variant:   v.Title,
 		Dir:       dir,
 		StartedAt: start,
 	}
-
 	defer func() { res.Duration = time.Since(start) }()
 
 	timeout := time.Duration(cfg.TimeoutSec) * time.Second
@@ -62,11 +93,16 @@ func Run(ctx context.Context, dir string, out io.Writer) (*Result, error) {
 		timeout = 30 * time.Second
 	}
 
-	// --- vars + TLS ---
-	vars := mergeVars(cfg.Vars)
+	// --- build vars: variant vars as base ---
+	vars := make(map[string]string, len(v.Vars))
+	for k, val := range v.Vars {
+		vars[k] = val
+	}
+
+	// --- TLS cert injection ---
 	if cfg.TLS {
-		hosts := []string{cfg.Vars["HOST_NAME"], cfg.Vars["SNI_NAME"], "127.0.0.1", "localhost"}
-		bundle, err := cert.Generate(dedup(hosts))
+		hosts := dedup([]string{vars["HOST_NAME"], vars["SNI_NAME"], "127.0.0.1", "localhost"})
+		bundle, err := cert.Generate(hosts)
 		if err != nil {
 			res.Err = fmt.Errorf("TLS cert gen: %w", err)
 			return res, res.Err
@@ -82,33 +118,37 @@ func Run(ctx context.Context, dir string, out io.Writer) (*Result, error) {
 		vars["TLS_CERT"] = certPath
 		vars["TLS_KEY"] = keyPath
 		vars["CA_FINGERPRINT"] = bundle.CAFingerprint
-		log.Printf("[cert] generated self-signed CA fingerprint=%s", bundle.CAFingerprint[:16]+"…")
+		log.Printf("[cert] self-signed CA fingerprint=%s…", bundle.CAFingerprint[:16])
 	}
 
 	// --- before_start hooks ---
 	for _, cmd := range cfg.BeforeStart {
 		log.Printf("[hook] before_start: %s", cmd)
-		if err := runShell(ctx, cmd, out); err != nil {
-			log.Printf("[hook] warning: %v", err)
-		}
+		_ = runShell(ctx, cmd, log)
 	}
 
-	// --- build topology ---
+	// --- build node list ---
 	var nodes []nodeSpec
+	var buildErr error
 	if len(cfg.Topology) > 0 {
-		nodes, err = buildTopology(cfg, dir)
+		nodes, buildErr = buildTopology(cfg, dir)
 	} else {
-		nodes, err = buildSimple(cfg, dir)
+		nodes, buildErr = buildSimple(cfg, dir)
 	}
-	if err != nil {
-		res.Err = err
-		return res, err
+	if buildErr != nil {
+		res.Err = buildErr
+		return res, buildErr
 	}
 
-	// --- render configs ---
+	// --- render configs (chaining propagates resolved vars forward) ---
 	renderedVars := vars
 	for i := range nodes {
-		rendered, resolved, err := renderConfig(nodes[i].configPath, renderedVars)
+		path, err := resolveConfigPath(nodes[i].configPath)
+		if err != nil {
+			res.Err = err
+			return res, err
+		}
+		rendered, resolved, err := renderConfig(path, renderedVars)
 		if err != nil {
 			res.Err = fmt.Errorf("render %s: %w", nodes[i].role, err)
 			return res, res.Err
@@ -119,9 +159,8 @@ func Run(ctx context.Context, dir string, out io.Writer) (*Result, error) {
 			return res, err
 		}
 		nodes[i].renderedPath = tmp
-		// Propagate resolved ports for chaining.
-		for k, v := range resolved {
-			renderedVars[k] = v
+		for k, val := range resolved {
+			renderedVars[k] = val
 		}
 		if nodes[i].role == "client" {
 			renderedVars["UPSTREAM_SERVER"] = resolved["SERVER"]
@@ -137,81 +176,76 @@ func Run(ctx context.Context, dir string, out io.Writer) (*Result, error) {
 	// --- start processes ---
 	var stopFns []func()
 	defer func() {
-		for _, fn := range stopFns {
-			fn()
+		for i := len(stopFns) - 1; i >= 0; i-- {
+			stopFns[i]()
 		}
 	}()
 
 	for i := range nodes {
 		n := &nodes[i]
-		c := core.New(n.coreName, "")
-		if c == nil {
-			res.Err = fmt.Errorf("unknown core %q", n.coreName)
-			return res, res.Err
-		}
-		res.CoreVersion = c.Version()
-		log.Printf("[core] starting %s (%s) role=%s", n.coreName, res.CoreVersion, n.role)
 
-		if n.deploy != nil && n.deploy.IsRemote() {
-			sc, err := dialSSH(n.deploy.URL)
+		binPath, args, err := resolveProcessArgs(cfg, n.role)
+		if err != nil {
+			res.Err = err
+			return res, err
+		}
+
+		if n.sshURL != "" {
+			sc, err := dialSSH(n.sshURL)
 			if err != nil {
-				res.Err = fmt.Errorf("SSH dial %s: %w", n.deploy.URL, err)
+				res.Err = fmt.Errorf("SSH dial %s: %w", n.sshURL, err)
 				return res, res.Err
 			}
-			remoteDir := n.deploy.RemoteDir
-			if remoteDir == "" {
-				remoteDir = "/tmp/hch"
-			}
-			if err := scpFile(sc, n.renderedPath, remoteDir+"/server.json"); err != nil {
+			remoteDir := "/tmp/hch"
+			if err := scpFile(sc, n.renderedPath, remoteDir+"/config.json"); err != nil {
 				sc.Close()
 				res.Err = err
 				return res, err
 			}
-			if err := sshExec(sc, fmt.Sprintf("nohup %s run -c %s/server.json > /tmp/hch.log 2>&1 &", n.coreName, remoteDir)); err != nil {
+			remoteCmd := fmt.Sprintf("nohup %s %s%s/config.json > /tmp/hch.log 2>&1 &",
+				binPath, strings.Join(args, " ")+" ", remoteDir)
+			if err := sshExec(sc, remoteCmd); err != nil {
 				sc.Close()
 				res.Err = err
 				return res, err
 			}
+			coreName := cfg.Core
 			stopFns = append(stopFns, func() {
-				_ = sshExec(sc, fmt.Sprintf("pkill -f '%s'", n.coreName))
+				_ = sshExec(sc, fmt.Sprintf("pkill -f '%s'", coreName))
 				sc.Close()
 			})
 		} else {
+			c := buildProcessCore(binPath, args)
+			res.CoreVersion = c.Version()
+			log.Printf("[core] %s (%s) role=%s", binPath, res.CoreVersion, n.role)
 			runCtx, cancel := context.WithCancel(ctx)
 			if err := c.Start(runCtx, n.renderedPath, log); err != nil {
 				cancel()
 				res.Err = fmt.Errorf("start %s: %w", n.role, err)
 				return res, res.Err
 			}
-			stopFns = append(stopFns, func() {
-				cancel()
-				_ = c.Stop()
-			})
+			stopFns = append(stopFns, func() { cancel(); _ = c.Stop() })
 		}
 	}
 
-	// --- wait for client SOCKS port ---
+	// --- wait for client SOCKS ---
 	socksAddr := net.JoinHostPort("127.0.0.1", socksPort)
-	log.Printf("[wait] SOCKS proxy at %s", socksAddr)
+	log.Printf("[wait] SOCKS at %s", socksAddr)
 	if err := waitTCP(ctx, socksAddr, timeout); err != nil {
-		res.Err = fmt.Errorf("SOCKS port not ready: %w", err)
+		res.Err = fmt.Errorf("SOCKS not ready: %w", err)
 		return res, res.Err
 	}
 	log.Printf("[wait] SOCKS ready")
 
 	// --- health checks ---
-	hcfg := health.Config{
+	hresults, _ := health.Run(ctx, health.Config{
 		ProxyAddr: "socks5://" + socksAddr,
 		Checks:    cfg.Checks,
 		Timeout:   timeout,
-	}
-	hresults, err := health.Run(ctx, hcfg)
-	if err != nil {
-		res.Err = err
-	}
+	})
 	res.Checks = hresults
 
-	pass := err == nil
+	pass := true
 	for _, r := range hresults {
 		if !r.OK {
 			pass = false
@@ -230,65 +264,150 @@ func Run(ctx context.Context, dir string, out io.Writer) (*Result, error) {
 		log.Printf("%s", msg)
 	}
 	res.Pass = pass
-
-	// --- protocol detection ---
 	res.Fingerprint = detect.Passive(hresults)
 
-	// --- after_stop hooks ---
 	for _, cmd := range cfg.AfterStop {
 		log.Printf("[hook] after_stop: %s", cmd)
-		_ = runShell(ctx, cmd, out)
+		_ = runShell(ctx, cmd, log)
 	}
 
 	res.Log = log.String()
 	return res, nil
 }
 
-// --- helpers ---
+// --- process args resolution ---
+
+// resolveProcessArgs returns (binaryPath, runArgs, error) for the given role.
+// Priority: run.json ClientProcessPath/ServerProcessPath > core registry.
+func resolveProcessArgs(cfg RunConfig, role string) (bin string, args []string, err error) {
+	var pathField, argField string
+	if role == "server" || role == "relay" {
+		pathField = cfg.ServerProcessPath
+		argField = cfg.ServerArg
+		if pathField == "" {
+			pathField = cfg.ClientProcessPath // fallback
+		}
+		if argField == "" {
+			argField = cfg.ClientArg
+		}
+	} else {
+		pathField = cfg.ClientProcessPath
+		argField = cfg.ClientArg
+	}
+
+	if pathField != "" {
+		bin = resolveEnvPath(pathField)
+		if bin == "" {
+			return "", nil, fmt.Errorf("binary path %q resolved to empty", pathField)
+		}
+		// argField is e.g. "run -c " — trailing space + config path appended by Start
+		for _, a := range strings.Fields(argField) {
+			args = append(args, a)
+		}
+		return bin, args, nil
+	}
+
+	// Fall back to core registry.
+	if cfg.Core == "" {
+		return "", nil, fmt.Errorf("run.json: core or client_process_path required")
+	}
+	c := core.New(cfg.Core, "")
+	if c == nil {
+		return "", nil, fmt.Errorf("unknown core %q", cfg.Core)
+	}
+	// processCore exposes its bin/args via Start; return a sentinel.
+	return "_core_registry_:" + cfg.Core, nil, nil
+}
+
+// resolveEnvPath resolves "env.VAR_NAME" to os.Getenv("VAR_NAME"),
+// or returns the string as-is if it doesn't start with "env.".
+func resolveEnvPath(s string) string {
+	if strings.HasPrefix(s, "env.") {
+		return os.Getenv(strings.TrimPrefix(s, "env."))
+	}
+	return s
+}
+
+// buildProcessCore wraps a raw binary path + args into a core.Core.
+// When bin starts with "_core_registry_:" it delegates to the registered core.
+func buildProcessCore(bin string, args []string) core.Core {
+	if strings.HasPrefix(bin, "_core_registry_:") {
+		name := strings.TrimPrefix(bin, "_core_registry_:")
+		return core.New(name, "")
+	}
+	return core.NewRaw(bin, args)
+}
+
+// --- config path resolution (.j2 → .tpl → .json fallback) ---
+
+var configExts = []string{".j2", ".tpl", ".json", ""}
+
+func resolveConfigPath(base string) (string, error) {
+	// If it already has a known extension, use as-is.
+	ext := filepath.Ext(base)
+	for _, e := range configExts[3:] { // non-empty exts
+		if ext == e {
+			if _, err := os.Stat(base); err == nil {
+				return base, nil
+			}
+		}
+	}
+	// Strip extension and try each in order.
+	stem := strings.TrimSuffix(base, ext)
+	for _, e := range configExts[:3] {
+		candidate := stem + e
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	// Try original path.
+	if _, err := os.Stat(base); err == nil {
+		return base, nil
+	}
+	return "", fmt.Errorf("config file not found: %s (tried .j2/.tpl/.json)", base)
+}
+
+// --- node spec ---
 
 type nodeSpec struct {
 	role         string
-	coreName     string
 	configPath   string
 	renderedPath string
-	deploy       *DeployConfig
+	sshURL       string
 }
 
 func buildSimple(cfg RunConfig, dir string) ([]nodeSpec, error) {
-	coreName := cfg.Core
-	nodes := []nodeSpec{
-		{role: "server", coreName: coreName, configPath: filepath.Join(dir, cfg.ServerConfig)},
-		{role: "client", coreName: coreName, configPath: filepath.Join(dir, cfg.ClientConfig)},
+	serverCfg := cfg.ServerConfig
+	clientCfg := cfg.ClientConfig
+	if serverCfg == "" {
+		serverCfg = "server.json"
 	}
-	if cfg.Deploy.IsRemote() {
-		d := cfg.Deploy
-		nodes[0].deploy = &d
+	if clientCfg == "" {
+		clientCfg = "client.json"
 	}
-	return nodes, nil
+	sshURL := ""
+	if cfg.DeployIsRemote() {
+		sshURL = cfg.DeployToServer
+	}
+	return []nodeSpec{
+		{role: "server", configPath: filepath.Join(dir, serverCfg), sshURL: sshURL},
+		{role: "client", configPath: filepath.Join(dir, clientCfg)},
+	}, nil
 }
 
 func buildTopology(cfg RunConfig, dir string) ([]nodeSpec, error) {
-	coreName := cfg.Core
 	var nodes []nodeSpec
 	for _, t := range cfg.Topology {
-		c := t.Core
-		if c == "" {
-			c = coreName
-		}
-		var d *DeployConfig
-		if t.Host != "" {
-			dc := DeployConfig{URL: t.Host}
-			d = &dc
-		}
 		nodes = append(nodes, nodeSpec{
 			role:       t.Role,
-			coreName:   c,
 			configPath: filepath.Join(dir, t.Config),
-			deploy:     d,
+			sshURL:     t.Host,
 		})
 	}
 	return nodes, nil
 }
+
+// --- helpers ---
 
 func loadRunConfig(dir string) (RunConfig, error) {
 	path := filepath.Join(dir, "run.json")
@@ -296,8 +415,13 @@ func loadRunConfig(dir string) (RunConfig, error) {
 	if err != nil {
 		return RunConfig{}, fmt.Errorf("load run.json: %w", err)
 	}
+	// Strip JSON5 before unmarshalling.
+	clean, err := json5.Strip(b)
+	if err != nil {
+		return RunConfig{}, fmt.Errorf("json5 strip run.json: %w", err)
+	}
 	var cfg RunConfig
-	if err := json.Unmarshal(b, &cfg); err != nil {
+	if err := json.Unmarshal(clean, &cfg); err != nil {
 		return RunConfig{}, fmt.Errorf("parse run.json: %w", err)
 	}
 	if len(cfg.Checks) == 0 {
@@ -306,18 +430,10 @@ func loadRunConfig(dir string) (RunConfig, error) {
 	return cfg, nil
 }
 
-func mergeVars(v map[string]string) map[string]string {
-	out := make(map[string]string, len(v))
-	for k, val := range v {
-		out[k] = val
-	}
-	return out
-}
-
 func renderConfig(path string, vars map[string]string) ([]byte, map[string]string, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read config %s: %w", path, err)
+		return nil, nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	return tmpl.Render(src, vars)
 }
@@ -328,17 +444,14 @@ func writeTempConfig(content []byte, role string) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	if _, err := f.Write(content); err != nil {
-		return "", err
-	}
-	return f.Name(), nil
+	_, err = f.Write(content)
+	return f.Name(), err
 }
 
 func waitTCP(ctx context.Context, addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
-		if err == nil {
+		if conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond); err == nil {
 			conn.Close()
 			return nil
 		}
@@ -373,7 +486,6 @@ func dedup(ss []string) []string {
 	return out
 }
 
-// logWriter captures output and also streams to an underlying writer.
 type logWriter struct {
 	w   io.Writer
 	buf strings.Builder

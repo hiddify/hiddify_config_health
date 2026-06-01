@@ -75,31 +75,40 @@ func runCmd() *cobra.Command {
 
 func runOne(ctx context.Context, dir string, db *store.DB) error {
 	fmt.Printf("▶ %s\n", dir)
-	res, err := runner.Run(ctx, dir, os.Stdout)
+	results, err := runner.Run(ctx, dir, os.Stdout)
 	if err != nil {
 		fmt.Printf("  ERROR: %v\n", err)
 		return err
 	}
-	if db != nil {
-		rec := store.Record{
-			ExampleDir:  dir,
-			Name:        res.Name,
-			CoreVersion: res.CoreVersion,
-			Pass:        res.Pass,
-			Checks:      res.Checks,
-			Fingerprint: res.Fingerprint,
-			Log:         res.Log,
-			StartedAt:   res.StartedAt,
-			DurationMs:  res.Duration.Milliseconds(),
+	anyFail := false
+	for _, res := range results {
+		if db != nil {
+			rec := store.Record{
+				ExampleDir:  dir,
+				Name:        res.Name,
+				CoreVersion: res.CoreVersion,
+				Pass:        res.Pass,
+				Checks:      res.Checks,
+				Fingerprint: res.Fingerprint,
+				Log:         res.Log,
+				StartedAt:   res.StartedAt,
+				DurationMs:  res.Duration.Milliseconds(),
+			}
+			_, _ = db.Save(rec)
 		}
-		_, _ = db.Save(rec)
+		status := "PASS"
+		if !res.Pass {
+			status = "FAIL"
+			anyFail = true
+		}
+		label := res.Name
+		if res.Variant != "" && res.Variant != res.Name {
+			label = res.Variant
+		}
+		fmt.Printf("  [%s] %s  duration=%s  censor=%s\n",
+			label, status, res.Duration.Round(time.Millisecond), res.Fingerprint.Verdict)
 	}
-	status := "PASS"
-	if !res.Pass {
-		status = "FAIL"
-	}
-	fmt.Printf("  %s  duration=%s  censor=%s\n", status, res.Duration.Round(time.Millisecond), res.Fingerprint.Verdict)
-	if !res.Pass {
+	if anyFail {
 		return fmt.Errorf("test failed")
 	}
 	return nil

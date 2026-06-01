@@ -40,6 +40,20 @@ func New(name, binPath string) Core {
 	return f(binPath)
 }
 
+// NewRaw constructs a Core from an explicit binary path and a fixed arg prefix.
+// The config file path is appended after args when Start is called.
+func NewRaw(binPath string, args []string) Core {
+	argsCopy := make([]string, len(args))
+	copy(argsCopy, args)
+	return &processCore{
+		name:    binPath,
+		binPath: binPath,
+		runArgs: func(cfg string) []string {
+			return append(argsCopy, cfg)
+		},
+	}
+}
+
 // Names returns all registered core names.
 func Names() []string {
 	out := make([]string, 0, len(registry))

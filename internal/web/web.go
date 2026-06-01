@@ -131,14 +131,14 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	res, runErr := runner.Run(r.Context(), dir, pw)
+	results, runErr := runner.Run(r.Context(), dir, pw)
 	_ = pw.Close()
 
 	if runErr != nil {
 		writeSSE(w, flusher, "error", runErr.Error())
 	}
 
-	if res != nil {
+	for _, res := range results {
 		if s.DB != nil {
 			rec := store.Record{
 				ExampleDir:  dir,
