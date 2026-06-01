@@ -117,7 +117,11 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	pr, pw, _ := os.Pipe()
+	var drainWG sync.WaitGroup
+	drainWG.Add(1)
 	go func() {
+		defer drainWG.Done()
+		defer pr.Close()
 		buf := make([]byte, 512)
 		for {
 			n, err := pr.Read(buf)
@@ -133,6 +137,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	results, runErr := runner.Run(r.Context(), dir, pw)
 	_ = pw.Close()
+	drainWG.Wait() // ensure all log lines are flushed before sending result/done
 
 	if runErr != nil {
 		writeSSE(w, flusher, "error", runErr.Error())
