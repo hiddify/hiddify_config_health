@@ -68,8 +68,8 @@ func TestPassive_SpeedBelowMBps(t *testing.T) {
 
 func TestPassive_Empty(t *testing.T) {
 	fp := Passive(nil)
-	if fp.Verdict != "blocked" {
-		t.Errorf("empty verdict = %q, want blocked", fp.Verdict)
+	if fp.Verdict != "unknown" {
+		t.Errorf("empty verdict = %q, want unknown", fp.Verdict)
 	}
 	if fp.EntropyScore != 0 {
 		t.Errorf("empty entropy = %.2f, want 0", fp.EntropyScore)

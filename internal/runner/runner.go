@@ -82,10 +82,11 @@ func runVariant(ctx context.Context, dir string, cfg RunConfig, v Variant, out i
 
 	start := time.Now()
 	res := &Result{
-		Name:      cfg.Name,
-		Variant:   v.Title,
-		Dir:       dir,
-		StartedAt: start,
+		Name:        cfg.Name,
+		Variant:     v.Title,
+		Dir:         dir,
+		StartedAt:   start,
+		Fingerprint: detect.TrafficFingerprint{Verdict: "unknown"},
 	}
 	defer func() { res.Duration = time.Since(start) }()
 

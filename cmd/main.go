@@ -260,10 +260,40 @@ func findExamples(root string) ([]string, error) {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		if d.Name() == "run.json" {
-			dirs = append(dirs, filepath.Join(root, filepath.Dir(path)))
+		if d.Name() != "run.json" {
+			return nil
 		}
+		dir := filepath.Join(root, filepath.Dir(path))
+		// Skip "inheritance-only" run.json files that have no config files
+		// alongside them (no .json/.j2/.tpl other than run.json itself).
+		if !hasConfigFiles(dir) {
+			return nil
+		}
+		dirs = append(dirs, dir)
 		return nil
 	})
 	return dirs, err
+}
+
+// hasConfigFiles reports whether dir contains at least one template/config file
+// (*.json, *.j2, *.tpl) other than run.json itself.
+func hasConfigFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if name == "run.json" {
+			continue
+		}
+		ext := filepath.Ext(name)
+		if ext == ".json" || ext == ".j2" || ext == ".tpl" {
+			return true
+		}
+	}
+	return false
 }

@@ -63,6 +63,8 @@ func Passive(results []health.Result) TrafficFingerprint {
 	}
 
 	switch {
+	case len(results) == 0:
+		fp.Verdict = "unknown"
 	case !httpOK && !quicOK:
 		fp.Verdict = "blocked"
 	case fp.HasDNSLeak:
