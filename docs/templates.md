@@ -3,7 +3,7 @@
 Config files are rendered through a two-stage pipeline:
 
 ```
-template source  →  Pongo2 render  →  JSON5 strip  →  valid JSON  →  core process
+template source  →  Pongo2 render  →  JSON5 strip  →  [base merge]  →  valid JSON  →  core process
 ```
 
 ---
@@ -106,17 +106,67 @@ standard JSON that proxy cores accept.
 
 ---
 
+## Base template composition
+
+When a core has a `templates/base/<role>.json.j2` file (e.g.
+`examples/xray/templates/base/client.json.j2`), the runner:
+
+1. Renders the protocol template (e.g. `vless-xhttp/client.json.j2`)
+2. Renders the base template with the same resolved vars
+3. Deep-merges them: **base = defaults, protocol = overrides**
+
+This lets protocol templates be minimal (just `outbounds`) while the base
+provides the outer shell (`log`, `inbounds`/SOCKS, `routing`):
+
+```
+examples/xray/templates/base/client.json.j2   ← log + socks inbound + routing
+examples/xray/vless-xhttp/client.json.j2       ← just the vless outbound
+                                 ↓ deep merge
+                           full xray client config
+```
+
+**Merge rules:**
+- Object keys present only in base → kept
+- Object keys in both → protocol wins (recursive for nested objects)
+- Arrays → protocol array replaces base array entirely
+- `null` in protocol → removes the key from base
+
+The base template lookup walks up from the protocol template's directory,
+checking `../templates/base/`, `../../templates/base/`, etc. (up to 4 levels).
+
+### Partial includes
+
+Use `{% include %}` for shared JSON fragments within a template:
+
+```json5
+// examples/xray/vless-xhttp/server.json.j2
+"streamSettings": {
+  {% include "../templates/tls/server.tpl" %}  // ← injects TLS block
+  "network": "xhttp",
+  "xhttpSettings": { "mode": "stream-up", "path": "/xhttp" }
+}
+```
+
+Include paths are relative to the template file's directory. Pongo2 resolves
+them correctly because `RenderFile` creates the temp normalised copy in the
+same directory as the original.
+
+---
+
 ## Auto-resolved vars
 
 Set a var to `"auto"` in `run.json` and the runner fills it in:
 
 | Var | Resolved to |
 |---|---|
-| `PORT` | Random free TCP port |
-| `SOCKS_PORT` | Random free TCP port |
-| `UPSTREAM_PORT` | Random free TCP port |
+| `PORT`, `TCP_PORT`, `UDP_PORT`, `QUIC_PORT` | Random free port (each) |
+| `SOCKS_PORT`, `UPSTREAM_PORT` | Random free port |
 | `UUID` | UUID v4 (`uuid.New()`) |
 | `PASSWORD` | 16 random bytes, hex-encoded |
+| `LISTEN_SERVER` | Copied from `SERVER` when unset |
+| `LOG_LEVEL` | `"error"` when unset |
+
+Full list: [placeholders.md](placeholders.md).
 
 ---
 
