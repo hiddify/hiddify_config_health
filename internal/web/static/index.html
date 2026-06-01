@@ -104,7 +104,8 @@ function selectExample(item) {
 
 function clearLog() {
   document.getElementById('log-panel').innerHTML = '';
-  document.getElementById('checks-list').innerHTML = '<h3>Results</h3>';
+  const panel = document.getElementById('checks-list');
+  panel.innerHTML = '<h3>Results</h3>';
 }
 
 function appendLog(text, cls='') {
@@ -168,9 +169,27 @@ document.getElementById('btn-run').onclick = () => {
   });
 };
 
+// variantPanelId returns a stable DOM id for a variant's results section.
+function variantPanelId(variant) {
+  return 'vp-' + btoa(encodeURIComponent(variant||'default')).replace(/[^a-z0-9]/gi,'');
+}
+
 function renderResults(r) {
   const panel = document.getElementById('checks-list');
-  let html = '<h3>Results</h3>';
+  const variantLabel = r.Variant && r.Variant !== r.Name ? r.Variant : '';
+  const panelId = variantPanelId(r.Variant);
+
+  // If a section for this variant already exists, replace it; else append.
+  let section = document.getElementById(panelId);
+  if (!section) {
+    section = document.createElement('div');
+    section.id = panelId;
+    panel.appendChild(section);
+  }
+
+  let html = variantLabel
+    ? `<h3 style="margin-top:10px;font-size:.82rem;color:#a78bfa">▸ ${variantLabel}</h3>`
+    : '<h3>Results</h3>';
 
   (r.Checks||[]).forEach(c => {
     html += `<div class="check-row">
@@ -182,17 +201,17 @@ function renderResults(r) {
   if (r.Fingerprint) {
     const fp = r.Fingerprint;
     const cls = 'fp-'+(fp.Verdict||'unknown');
-    html += `<div style="margin-top:12px"><div class="fp-badge ${cls}">${fp.Verdict}</div>`;
+    html += `<div style="margin-top:8px"><div class="fp-badge ${cls}">${fp.Verdict}</div>`;
     if (fp.HasDNSLeak) html += `<div class="fp-row">⚠ DNS leak detected</div>`;
     if (fp.SpeedAboveMBps) html += `<div class="fp-row">⚡ Speed &gt; 1 MB/s</div>`;
     html += `<div class="fp-row">Entropy: ${(fp.EntropyScore*100).toFixed(0)}%</div></div>`;
   }
 
-  if (r.CoreVersion) {
+  if (r.CoreVersion && !variantLabel) {
     html += `<div class="fp-row" style="margin-top:8px;color:#4a5568">${r.CoreVersion}</div>`;
   }
 
-  panel.innerHTML = html;
+  section.innerHTML = html;
 }
 
 function updateSidebarBadge(dir, pass) {
@@ -215,9 +234,10 @@ async function loadHistory(dir) {
   html += '<div class="history-section"><h3 style="font-size:.8rem;margin-bottom:6px">History</h3>';
   recs.slice(0,10).forEach(r => {
     const d = new Date(r.StartedAt * 1000).toLocaleString();
+    const vLabel = r.Variant ? `<span style="color:#a78bfa;font-size:.7rem">${r.Variant}</span> ` : '';
     html += `<div class="history-row">
       <span class="${r.Pass?'check-ok':'check-fail'}">${r.Pass?'✓':'✗'}</span>
-      <span style="flex:1">${d}</span>
+      <span style="flex:1">${vLabel}${d}</span>
       <span style="color:#4a5568">${r.DurationMs}ms</span>
     </div>`;
   });
