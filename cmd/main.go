@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/signal"
@@ -33,6 +34,7 @@ var (
 	flagDBPath      string
 	flagExamplesDir string
 	flagTimeout     int
+	flagQuiet       bool
 )
 
 func rootCmd() *cobra.Command {
@@ -45,6 +47,7 @@ func rootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&flagDBPath, "db", store.DefaultPath(), "SQLite result database path")
 	root.PersistentFlags().StringVar(&flagExamplesDir, "examples", "examples", "examples root directory")
 	root.PersistentFlags().IntVar(&flagTimeout, "timeout", 30, "per-check timeout in seconds")
+	root.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "suppress raw process log; show only result summary")
 
 	root.AddCommand(
 		runCmd(),
@@ -75,7 +78,11 @@ func runCmd() *cobra.Command {
 
 func runOne(ctx context.Context, dir string, db *store.DB) error {
 	fmt.Printf("▶ %s\n", dir)
-	results, err := runner.Run(ctx, dir, os.Stdout)
+	logOut := io.Writer(os.Stdout)
+	if flagQuiet {
+		logOut = io.Discard
+	}
+	results, err := runner.Run(ctx, dir, logOut)
 	if err != nil {
 		fmt.Printf("  ERROR: %v\n", err)
 		return err
