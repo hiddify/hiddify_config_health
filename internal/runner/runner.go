@@ -150,7 +150,7 @@ func runVariant(ctx context.Context, dir string, cfg RunConfig, v Variant, out i
 			res.Err = err
 			return res, err
 		}
-		rendered, resolved, err := renderConfig(path, renderedVars)
+		rendered, resolved, err := renderConfig(path, renderedVars, cfg.ShouldStripJSON5())
 		if err != nil {
 			res.Err = fmt.Errorf("render %s: %w", nodes[i].role, err)
 			return res, res.Err
@@ -625,44 +625,66 @@ func isEmptyVal(v interface{}) bool {
 	return false
 }
 
-// renderConfig renders path as a Pongo2 template, then checks whether a
-// base template exists at <parent>/templates/base/<role>.json.j2 and, if
-// so, renders it too and deep-merges (base = defaults, protocol = overrides).
-func renderConfig(path string, vars map[string]string) ([]byte, map[string]string, error) {
-	rendered, resolved, err := tmpl.RenderFile(path, vars)
+// renderConfig renders path as a Pongo2 template.
+//
+// If the template uses "{% extends ... %}", Pongo2 handles composition
+// natively — no Go-side merging. Otherwise, falls back to deep-merge:
+// looks for a base template at <parent>/templates/base/<role>.json.j2
+// and merges it with the rendered output (base = defaults, protocol = override).
+// stripJSON5 controls whether JSON5 extensions are stripped after rendering.
+func renderConfig(path string, vars map[string]string, stripJSON5 ...bool) ([]byte, map[string]string, error) {
+	doStrip := len(stripJSON5) == 0 || stripJSON5[0]
+	// Read source to detect {% extends %} before rendering.
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	rendered, resolved, err := tmpl.RenderFile(path, vars, doStrip)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Determine role from filename: "server*" → server, otherwise client.
-	role := "client"
-	base := filepath.Base(path)
-	if strings.HasPrefix(base, "server") {
-		role = "server"
+	// If template uses extends, Pongo2 already composed the full output.
+	if usesExtends(src) {
+		return rendered, resolved, nil
 	}
 
-	// Look for <example-parent>/templates/base/<role>.json.j2
+	// Deep-merge fallback: find base template and merge.
+	role := "client"
+	if strings.HasPrefix(filepath.Base(path), "server") || strings.HasPrefix(filepath.Base(path), "conf-server") {
+		role = "server"
+	}
 	baseTpl := findBaseTemplate(filepath.Dir(path), role)
 	if baseTpl == "" {
 		return rendered, resolved, nil
 	}
-
-	baseRendered, _, err := tmpl.RenderFile(baseTpl, resolved)
+	baseRendered, _, err := tmpl.RenderFile(baseTpl, resolved, doStrip)
 	if err != nil {
-		// Non-fatal: base template render failure just skips merging.
 		return rendered, resolved, nil
 	}
-
-	// Only merge when rendered output is a valid JSON object.
 	if !isJSONObject(rendered) || !isJSONObject(baseRendered) {
 		return rendered, resolved, nil
 	}
-
 	merged, err := jsonmerge.Merge(baseRendered, rendered)
 	if err != nil {
 		return rendered, resolved, nil
 	}
 	return merged, resolved, nil
+}
+
+// usesExtends reports whether the template source starts with an extends tag
+// (ignoring leading whitespace/comments).
+func usesExtends(src []byte) bool {
+	s := strings.TrimSpace(string(src))
+	return strings.HasPrefix(s, "{%") && strings.Contains(s[:min(len(s), 40)], "extends")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // findBaseTemplate walks up from dir looking for

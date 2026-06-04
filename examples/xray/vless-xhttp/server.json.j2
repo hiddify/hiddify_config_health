@@ -1,28 +1,27 @@
-{
-  "inbounds": [
-    {
-      "tag": "proxy-in",
-      "port": {{TCP_PORT}},
-      "listen": "{{LISTEN_SERVER}}",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "{{UUID}}", 
-            "flow": "{{VLESS_FLOW}}"
-          }
-        ],
-        "decryption": "{{VLESS_DEC}}"
-      },
-      "streamSettings": {
-        {% include "../templates/tls/server.tpl" %}
-        "network": "xhttp",
-        "xhttpSettings": {
-          "mode": "stream-up",
-          "path": "/xhttp"
-        }
-      }
-    }
+{% extends "../templates/base/server.json.j2" %}
 
-  ]
+{% block inbound %}
+{
+  "tag": "proxy-in",
+  "port": {{ TCP_PORT }},
+  "listen": "{{ LISTEN_SERVER }}",
+  "protocol": "vless",
+  "settings": {
+    "clients": [
+      {
+        "id": "{{ UUID }}",
+        "flow": "{{ VLESS_FLOW }}"
+      }
+    ],
+    "decryption": "{{ VLESS_DEC }}"
+  },
+  "streamSettings": {
+    {% include "../templates/tls/server.tpl" %}
+    "network": "xhttp",
+    "xhttpSettings": {
+      "mode": "stream-up",
+      "path": "/xhttp"
+    }
+  }
 }
+{% endblock %}

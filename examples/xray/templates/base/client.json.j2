@@ -1,30 +1,25 @@
 {
   "log": {
-    "loglevel": "{{LOG_LEVEL}}"
+    "loglevel": "{{ LOG_LEVEL }}"
   },
   "inbounds": [
     {
       "tag": "socks-in",
-      "port": {{SOCKS_PORT}},
+      "port": {{ SOCKS_PORT }},
       "listen": "127.0.0.1",
       "protocol": "socks",
-      "settings": {
-        "auth": "noauth", 
-        "udp": true
-      }
+      "settings": {"auth": "noauth", "udp": true}
     }
   ],
   "routing": {
-    "domainStrategy": "IPIfNonMatch", 
+    "domainStrategy": "IPIfNonMatch",
     "rules": [
-      {
-            "type": "field",
-            "port": "0-65535",
-            "outboundTag": "proxy"
-          }
+      {"type": "field", "port": "0-65535", "outboundTag": "proxy"}
     ]
   },
-  "outbounds":[
-      {"protocol": "freedom", "tag": "direct"}
+  "outbounds": [
+    {% block outbound %}
+    {"protocol": "freedom", "tag": "direct"}
+    {% endblock %}
   ]
 }

@@ -13,6 +13,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -216,10 +218,51 @@ func Run(ctx context.Context, cfg Config) ([]Result, error) {
 				}
 				return Result{Duration: dur, Throughput: tp, Extra: fmt.Sprintf("throughput=%s", FormatThroughput(tp))}, nil
 			})
+		default:
+			// Treat unknown check names as custom tester executable paths.
+			// The executable receives connection info via environment variables:
+			//   HCH_PROXY_ADDR   socks5://host:port
+			//   HCH_SERVER       server host
+			//   HCH_PORT         server port
+			//   HCH_TIMEOUT      timeout in seconds
+			// Exit 0 = PASS, non-zero = FAIL.
+			checkName := check
+			add(checkName, func() (Result, error) {
+				return runCustomCheck(ctx, checkName, cfg)
+			})
 		}
 	}
 
 	return results, nil
+}
+
+// runCustomCheck executes an arbitrary binary as a health check.
+// The binary receives connection context via environment variables and its
+// exit code determines pass (0) / fail (non-zero).
+//
+// Environment variables passed to the custom tester:
+//
+//	HCH_PROXY_ADDR   socks5://host:port (the client SOCKS proxy)
+//	HCH_TIMEOUT      timeout in seconds
+func runCustomCheck(ctx context.Context, path string, cfg Config) (Result, error) {
+	timeoutCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(timeoutCtx, path)
+	cmd.Env = append(cmd.Environ(),
+		"HCH_PROXY_ADDR="+cfg.ProxyAddr,
+		"HCH_TIMEOUT="+strconv.Itoa(int(cfg.Timeout.Seconds())),
+	)
+
+	out, err := cmd.CombinedOutput()
+	extra := strings.TrimSpace(string(out))
+	if len(extra) > 200 {
+		extra = extra[:200] + "…"
+	}
+	if err != nil {
+		return Result{Extra: extra}, fmt.Errorf("custom check %q: %w", path, err)
+	}
+	return Result{Extra: extra}, nil
 }
 
 func expandChecks(checks []string) []string {

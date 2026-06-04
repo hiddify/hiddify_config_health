@@ -50,11 +50,25 @@ type RunConfig struct {
 	TLS bool `json:"tls,omitempty"`
 
 	// Checks lists which health checks to run.
+	// Built-in: dns, tcp-dns, http, quic, ping, download, upload, speedtest.
+	// Custom: any absolute or relative path to an executable — exit 0 = pass.
+	//   e.g. "./my-tester.sh" or "/usr/local/bin/custom-check"
+	// Default in run.json: comment out custom checks until needed.
 	Checks []string `json:"checks"`
+
+	// StripJSON5, when false, skips stripping JSON5 comments/trailing commas
+	// from rendered config files before passing them to the core process.
+	// Default: true (most cores require valid JSON).
+	StripJSON5 *bool `json:"strip_json5,omitempty"`
 
 	BeforeStart []string `json:"before_start,omitempty"`
 	AfterStop   []string `json:"after_stop,omitempty"`
 	TimeoutSec  int      `json:"timeout_sec,omitempty"`
+}
+
+// ShouldStripJSON5 returns true unless strip_json5 is explicitly false.
+func (c *RunConfig) ShouldStripJSON5() bool {
+	return c.StripJSON5 == nil || *c.StripJSON5
 }
 
 // Variant is one resolved test variant derived from a vars entry.

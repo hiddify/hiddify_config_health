@@ -1,28 +1,27 @@
+{% extends "../templates/base/client.json.j2" %}
+
+{% block outbound %}
 {
-  "outbounds": [
-    {
-      "tag": "vless-out",
-      "protocol": "vless",
-      "settings": {
-        "vnext": [
-          {
-            "address": "{{SERVER}}",
-            "port": {{PORT}},
-            "users": [{"id": "{{UUID}}", "encryption": "none"}]
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "xhttp",
-        {% include "../templates/tls/client.tpl" %}
-        "xhttpSettings": {
-          "mode": "stream-up",
-          "host": "{{HOST_NAME}}",
-          "path": "/xhttp"
-        }
+  "tag": "vless-out",
+  "protocol": "vless",
+  "settings": {
+    "vnext": [
+      {
+        "address": "{{ SERVER }}",
+        "port": {{ PORT }},
+        "users": [{"id": "{{ UUID }}", "encryption": "none"}]
       }
-    },
-    {"protocol": "freedom", "tag": "direct"}
-  ],
-  "routing": {"domainStrategy": "IPIfNonMatch", "rules": []}
-}
+    ]
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    {% include "../templates/tls/client.tpl" %}
+    "xhttpSettings": {
+      "mode": "stream-up",
+      "host": "{{ HOST_NAME }}",
+      "path": "/xhttp"
+    }
+  }
+},
+{"protocol": "freedom", "tag": "direct"}
+{% endblock %}

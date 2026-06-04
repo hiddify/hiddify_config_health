@@ -1,7 +1,11 @@
 {
   "log": {
-    "loglevel": "{{LOG_LEVEL}}"
+    "loglevel": "{{ LOG_LEVEL }}"
   },
+  "inbounds": [
+    {% block inbound %}
+    {% endblock %}
+  ],
   "outbounds": [
     {"protocol": "freedom", "tag": "direct"}
   ],

@@ -86,13 +86,15 @@ func init() {
 }
 
 // Render renders src as a Pongo2/Jinja2 template against vars, resolves "auto"
-// values, then strips JSON5 extensions from the result.
+// values, then optionally strips JSON5 extensions.
 //
-// Returns:
-//   - rendered valid-JSON bytes
-//   - fully-resolved vars map (auto-assigned values are filled in)
-//   - error
-func Render(src []byte, vars map[string]string) ([]byte, map[string]string, error) {
+// stripJSON5 (optional, default true): when false, JSON5 comments and trailing
+// commas are kept in the output — useful for cores that accept JSON5, or for
+// debugging rendered output.
+//
+// Returns: rendered bytes, fully-resolved vars map, error.
+func Render(src []byte, vars map[string]string, stripJSON5 ...bool) ([]byte, map[string]string, error) {
+	doStrip := len(stripJSON5) == 0 || stripJSON5[0]
 	// 1. Resolve "auto" vars before rendering so the template sees real values.
 	resolved, err := resolveAuto(vars)
 	if err != nil {
@@ -108,32 +110,29 @@ func Render(src []byte, vars map[string]string) ([]byte, map[string]string, erro
 		return nil, nil, fmt.Errorf("tmpl: parse template: %w", err)
 	}
 
-	ctx := pongo2.Context{}
-	for k, v := range resolved {
-		ctx[k] = v
-		// Also expose lowercase alias so {{ server }} works too.
-		ctx[lowercase(k)] = v
-	}
+	ctx := buildContext(resolved)
 
 	rendered, err := tpl.ExecuteBytes(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("tmpl: render: %w", err)
 	}
 
-	// 4. Strip JSON5 extensions → valid JSON.
-	clean, err := json5.Strip(rendered)
-	if err != nil {
-		return nil, nil, fmt.Errorf("tmpl: json5 strip: %w", err)
+	// 4. Optionally strip JSON5 extensions → valid JSON.
+	if doStrip {
+		clean, err := json5.Strip(rendered)
+		if err != nil {
+			return nil, nil, fmt.Errorf("tmpl: json5 strip: %w", err)
+		}
+		return clean, resolved, nil
 	}
-
-	return clean, resolved, nil
+	return rendered, resolved, nil
 }
 
 // RenderFile renders a template file using pongo2.FromFile so that
-// {% include "relative/path" %} directives resolve relative to the
-// template file's directory. Returns rendered valid-JSON bytes and
-// the fully-resolved vars map.
-func RenderFile(path string, vars map[string]string) ([]byte, map[string]string, error) {
+// {% include %} and {% extends %} resolve relative to the template's directory.
+// stripJSON5 (optional, default true): pass false to keep JSON5 comments.
+func RenderFile(path string, vars map[string]string, stripJSON5 ...bool) ([]byte, map[string]string, error) {
+	doStrip := len(stripJSON5) == 0 || stripJSON5[0]
 	// Read source so we can normalise {{KEY}} before pongo2 parses it.
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -167,22 +166,44 @@ func RenderFile(path string, vars map[string]string) ([]byte, map[string]string,
 		return nil, nil, fmt.Errorf("tmpl: parse %s: %w", path, err)
 	}
 
-	ctx := pongo2.Context{}
-	for k, v := range resolved {
-		ctx[k] = v
-		ctx[lowercase(k)] = v
-	}
+	ctx := buildContext(resolved)
 
 	rendered, err := tpl.ExecuteBytes(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("tmpl: render %s: %w", path, err)
 	}
 
-	clean, err := json5.Strip(rendered)
-	if err != nil {
-		return nil, nil, fmt.Errorf("tmpl: json5 strip: %w", err)
+	if doStrip {
+		clean, err := json5.Strip(rendered)
+		if err != nil {
+			return nil, nil, fmt.Errorf("tmpl: json5 strip: %w", err)
+		}
+		return clean, resolved, nil
 	}
-	return clean, resolved, nil
+	return rendered, resolved, nil
+}
+
+// buildContext constructs the pongo2 render context from resolved vars.
+//
+// Exposes:
+//   - Every key from resolved, e.g. {{ SERVER }}, {{ PORT }}
+//   - Lowercase aliases: {{ server }}, {{ port }}
+//   - env map: {{ env.MY_VAR }} reads os.Getenv("MY_VAR")
+func buildContext(resolved map[string]string) pongo2.Context {
+	// Build a lazy env map using a custom type that reads from os.Getenv.
+	envMap := make(map[string]string)
+	for _, e := range os.Environ() {
+		if idx := strings.IndexByte(e, '='); idx > 0 {
+			envMap[e[:idx]] = e[idx+1:]
+		}
+	}
+
+	ctx := pongo2.Context{"env": envMap}
+	for k, v := range resolved {
+		ctx[k] = v
+		ctx[lowercase(k)] = v
+	}
+	return ctx
 }
 
 // resolveAuto returns a copy of vars with "auto" values resolved.
@@ -215,9 +236,19 @@ func resolveAuto(vars map[string]string) (map[string]string, error) {
 		}
 	}
 
-	// Sensible defaults for vars that templates use but callers rarely set.
-	if out["LOG_LEVEL"] == "" {
-		out["LOG_LEVEL"] = "error"
+	// Built-in protocol defaults — override in vars if needed.
+	builtinDefaults := map[string]string{
+		"LOG_LEVEL":   "error",
+		"VLESS_ENC":   "none",
+		"VLESS_DEC":   "none",
+		"VLESS_FLOW":  "",
+		"HOST_NAME":   "example.com",
+		"SNI_NAME":    "example.com",
+	}
+	for k, def := range builtinDefaults {
+		if out[k] == "" {
+			out[k] = def
+		}
 	}
 
 	if out["UUID"] == "auto" {
