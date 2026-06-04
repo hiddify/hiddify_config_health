@@ -188,6 +188,8 @@ Empty = run locally. See [ssh-deploy.md](ssh-deploy.md).
 
 ## `checks` (array of strings)
 
+Built-in checks:
+
 | Value | What runs |
 |---|---|
 | `dns` | UDP DNS query via the proxy |
@@ -199,7 +201,42 @@ Empty = run locally. See [ssh-deploy.md](ssh-deploy.md).
 | `upload` | Upload throughput |
 | `speedtest` | Alias: `download` + `upload` + `ping` |
 
+**Custom executable check** — any path that is not a built-in name is
+executed as a binary. Exit code 0 = PASS, non-zero = FAIL.
+
+```json5
+"checks": [
+  "dns", "http",
+  // "./my-tester.sh",          // uncomment to enable custom check
+  // "/usr/local/bin/my-check"  // absolute path also works
+]
+```
+
+The binary receives these env vars:
+
+| Var | Value |
+|---|---|
+| `HCH_PROXY_ADDR` | `socks5://host:port` (the client SOCKS proxy) |
+| `HCH_TIMEOUT` | timeout in seconds |
+
+Stdout/stderr from the binary appears in the result `Extra` field (truncated to 200 chars).
+
 Default: `["dns", "http"]`.
+
+---
+
+## `strip_json5` (bool, default `true`)
+
+When `true` (default), JSON5 extensions (comments, trailing commas) are stripped
+from rendered config files before passing them to the core binary.
+
+Set to `false` for cores that natively accept JSON5, or to debug rendered output:
+
+```json5
+{
+  "strip_json5": false
+}
+```
 
 ---
 

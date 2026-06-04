@@ -3,7 +3,10 @@
 Config files are rendered through a two-stage pipeline:
 
 ```
-template source  →  Pongo2 render  →  JSON5 strip  →  [base merge]  →  valid JSON  →  core process
+template source  →  Pongo2 render  →  JSON5 strip  →  valid JSON  →  core process
+                         ↑                ↑
+               extends/block/include   skipped when strip_json5:false
+               resolves automatically
 ```
 
 ---
@@ -48,14 +51,30 @@ Both forms work:
 }
 ```
 
-### Loops
+### Environment variable access
 
-Pass a structured context via the runner (future extension) for loops:
+Templates can read OS environment variables via the `env` map:
 
 ```json5
-"users": [
-  {% for u in users %}
-  {"uuid": "{{ u.uuid }}", "email": "{{ u.email }}"},
+"private_key": "{{ env.WG_SERVER_PRIVKEY }}",
+"api_token":   "{{ env.MY_API_KEY }}",
+{% if env.DEBUG %}"log_level": "debug",{% endif %}
+```
+
+Missing env vars render as empty string — no error.
+
+### Loops
+
+Use `|split` filter to iterate over comma-separated strings:
+
+```json5
+// run.json.j2 — auto-generate variant list
+"vars": [
+  {% for flow in ",xtls-rprx-vision"|split:"," %}
+  {
+    "TITLE":      "{% if flow %}vless-flow{% else %}plain-tls{% endif %}",
+    "VLESS_FLOW": "{{ flow }}"
+  },
   {% endfor %}
 ]
 ```
@@ -64,8 +83,6 @@ Pass a structured context via the runner (future extension) for loops:
 
 <https://github.com/flosch/pongo2?tab=readme-ov-file#filters>
 
-Common ones:
-
 | Filter | Example | Result |
 |---|---|---|
 | `default` | `{{ X\|default:"foo" }}` | `foo` if X empty |
@@ -73,6 +90,7 @@ Common ones:
 | `upper` | `{{ NAME\|upper }}` | UPPERCASE |
 | `truncatechars` | `{{ S\|truncatechars:8 }}` | first 8 chars |
 | `replace` | `{{ S\|replace:"a":"b" }}` | char replace |
+| `split` | `{{ "a,b"\|split:"," }}` | list (for `{% for %}`) |
 
 ---
 
@@ -98,7 +116,21 @@ standard JSON that proxy cores accept.
 }
 ```
 
-### What is NOT stripped
+### Disabling JSON5 stripping
+
+Some cores accept comments natively, or you want to debug rendered output.
+Set `"strip_json5": false` in `run.json`:
+
+```json5
+{
+  "strip_json5": false,   // keep // and # comments in rendered config
+  ...
+}
+```
+
+Default: `true` (strip — required by most proxy cores).
+
+### What is NOT stripped (when strip_json5:true)
 
 - `//` inside a string value: `"url": "https://example.com/path//foo"` → kept
 - `#` inside a string value: `"color": "#ff0000"` → kept
@@ -106,27 +138,57 @@ standard JSON that proxy cores accept.
 
 ---
 
-## Base template composition
+## Template inheritance: `{% extends %}` + `{% block %}`
 
-When a core has a `templates/base/<role>.json.j2` file (e.g.
-`examples/xray/templates/base/client.json.j2`), the runner:
+**Recommended pattern** — protocol templates extend the base template.
+Pongo2 handles composition natively; no Go-side merging.
 
-1. Renders the protocol template (e.g. `vless-xhttp/client.json.j2`)
-2. Renders the base template with the same resolved vars
-3. Deep-merges them: **base = defaults, protocol = overrides**
+`examples/xray/templates/base/client.json.j2`:
 
-This lets protocol templates be minimal (just `outbounds`) while the base
-provides the outer shell (`log`, `inbounds`/SOCKS, `routing`):
-
+```json5
+{
+  "log": {"loglevel": "{{ LOG_LEVEL }}"},
+  "inbounds": [
+    {"tag": "socks-in", "port": {{ SOCKS_PORT }}, "protocol": "socks"}
+  ],
+  "outbounds": [
+    {% block outbound %}
+    {"protocol": "freedom", "tag": "direct"}
+    {% endblock %}
+  ]
+}
 ```
-examples/xray/templates/base/client.json.j2   ← log + socks inbound + routing
-examples/xray/vless-xhttp/client.json.j2       ← just the vless outbound
-                                 ↓ deep merge
-                           full xray client config
+
+`examples/xray/vless-xhttp/client.json.j2`:
+
+```json5
+{% extends "../templates/base/client.json.j2" %}
+
+{% block outbound %}
+{
+  "tag": "vless-out",
+  "protocol": "vless",
+  "streamSettings": {
+    {% include "../templates/tls/client.tpl" %}
+    "network": "xhttp"
+  }
+},
+{"protocol": "freedom", "tag": "direct"}
+{% endblock %}
 ```
+
+- `{% extends %}` must be the first statement in the file
+- `{% include %}` still works inside blocks
+- When `{% extends %}` is detected, the Go-side deep-merge fallback is skipped
+
+## Deep-merge fallback (without `{% extends %}`)
+
+If a template does **not** use `{% extends %}`, the runner checks for
+`templates/base/<role>.json.j2` in ancestor directories and deep-merges:
+base = defaults, protocol = overrides.
 
 **Merge rules:**
-- Object keys present only in base → kept
+- Object keys only in base → kept
 - Object keys in both → protocol wins (recursive for nested objects)
 - Arrays → protocol array replaces base array entirely
 - `null` in protocol → removes the key from base
