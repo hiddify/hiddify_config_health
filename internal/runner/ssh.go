@@ -30,8 +30,12 @@ func (s *sshConn) Close() {
 	}
 }
 
-// dialSSH connects to rawURL (ssh://user@host:port).
-// Authentication order: SSH agent → ~/.ssh/id_ed25519 → ~/.ssh/id_rsa.
+// dialSSH connects to rawURL (ssh://[user[:pass]@]host[:port]).
+//
+// Authentication order:
+//  1. Password from URL (ssh://user:pass@host) if present
+//  2. SSH agent (SSH_AUTH_SOCK)
+//  3. Key files: ~/.ssh/id_ed25519, id_rsa, id_ecdsa
 func dialSSH(rawURL string) (*sshConn, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -50,14 +54,30 @@ func dialSSH(rawURL string) (*sshConn, error) {
 
 	var authMethods []ssh.AuthMethod
 
-	// Try SSH agent first.
+	// Password from URL takes highest priority.
+	if u.User != nil {
+		if pass, ok := u.User.Password(); ok && pass != "" {
+			authMethods = append(authMethods, ssh.Password(pass))
+			// Also try keyboard-interactive in case server requires it.
+			authMethods = append(authMethods, ssh.KeyboardInteractive(
+				func(name, instruction string, questions []string, echos []bool) ([]string, error) {
+					answers := make([]string, len(questions))
+					for i := range questions {
+						answers[i] = pass
+					}
+					return answers, nil
+				}))
+		}
+	}
+
+	// SSH agent.
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if conn, err := net.Dial("unix", sock); err == nil {
 			authMethods = append(authMethods, ssh.PublicKeysCallback(agent.NewClient(conn).Signers))
 		}
 	}
 
-	// Try common key files.
+	// Key files.
 	for _, name := range []string{"id_ed25519", "id_rsa", "id_ecdsa"} {
 		path := filepath.Join(os.Getenv("HOME"), ".ssh", name)
 		if signer, err := loadSigner(path); err == nil {
@@ -66,7 +86,7 @@ func dialSSH(rawURL string) (*sshConn, error) {
 	}
 
 	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("ssh: no authentication methods available")
+		return nil, fmt.Errorf("ssh: no authentication methods available (provide password in URL or add key to ~/.ssh/)")
 	}
 
 	knownHostsPath := filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
