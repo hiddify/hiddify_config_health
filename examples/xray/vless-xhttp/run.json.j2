@@ -1,12 +1,12 @@
 {
-  // VLESS + xHTTP example — auto-generated from run.json.j2
-  // This Jinja2 template generates all test variant combinations automatically.
+  // VLESS + xHTTP — variants auto-generated via run.json.j2 (Jinja2/Pongo2 template)
+  // |split:"," creates a list from a comma-separated string for iteration.
   "name": "VLESS + xHTTP (xray)",
-  "server_config": "server",   // resolves: conf-server.json.j2 → server.json.j2
-  "client_config": "client",   // resolves: conf-client.json.j2 → client.json.j2
+  "server_config": "server",
+  "client_config": "client",
 
   "vars": [
-    {% for flow in ["", "xtls-rprx-vision"] %}
+    {% for flow in ",xtls-rprx-vision"|split:"," %}
     {
       "TITLE":      "{% if flow %}vless-flow{% else %}plain-tls{% endif %}",
       "TLS":        "1",

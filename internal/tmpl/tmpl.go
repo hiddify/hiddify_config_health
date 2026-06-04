@@ -40,6 +40,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/flosch/pongo2/v6"
 	"github.com/google/uuid"
@@ -66,6 +67,23 @@ var KnownVars = []string{
 // reNoSpacePlaceholder matches {{KEY}} or {{KEY}} patterns without spaces
 // so we can normalise them to {{ KEY }} for pongo2.
 var reNoSpacePlaceholder = regexp.MustCompile(`\{\{([A-Z_][A-Z0-9_]*)\}\}`)
+
+func init() {
+	// split filter: "a,b,c"|split:"," → ["a","b","c"]
+	// Enables for-loops over comma-separated strings in run.json.j2.
+	pongo2.RegisterFilter("split", func(in *pongo2.Value, param *pongo2.Value) (*pongo2.Value, *pongo2.Error) {
+		sep := param.String()
+		if sep == "" {
+			sep = ","
+		}
+		parts := strings.Split(in.String(), sep)
+		items := make([]interface{}, len(parts))
+		for i, p := range parts {
+			items[i] = strings.TrimSpace(p)
+		}
+		return pongo2.AsValue(items), nil
+	})
+}
 
 // Render renders src as a Pongo2/Jinja2 template against vars, resolves "auto"
 // values, then strips JSON5 extensions from the result.
