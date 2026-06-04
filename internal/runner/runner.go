@@ -302,7 +302,9 @@ func resolveProcessArgs(cfg RunConfig, role string) (bin string, args []string, 
 		if bin == "" {
 			return "", nil, fmt.Errorf("binary path %q resolved to empty", pathField)
 		}
-		// argField is e.g. "run -c " — trailing space + config path appended by Start
+		// argField may contain {{CONFIG_PATH}} placeholder (e.g. "run -c {{CONFIG_PATH}}").
+		// If it does, the placeholder is substituted with the actual path at Start() time.
+		// If it doesn't, the config path is appended at the end (backward compat).
 		for _, a := range strings.Fields(argField) {
 			args = append(args, a)
 		}
@@ -340,33 +342,32 @@ func buildProcessCore(bin string, args []string) core.Core {
 	return core.NewRaw(bin, args)
 }
 
-// --- config path resolution (.j2 → .tpl → .json fallback) ---
-
-var configExts = []string{".j2", ".tpl", ".json", ""}
+// --- config path resolution ---
+//
+// Priority order for config file names (given stem e.g. "server"):
+//   conf-<stem>.json.j2  →  <stem>.json.j2  →  <stem>.tpl  →  <stem>.json
 
 func resolveConfigPath(base string) (string, error) {
-	// If it already has a known extension, use as-is.
+	dir := filepath.Dir(base)
+	// Determine stem: strip any extension the caller provided.
 	ext := filepath.Ext(base)
-	for _, e := range configExts[3:] { // non-empty exts
-		if ext == e {
-			if _, err := os.Stat(base); err == nil {
-				return base, nil
-			}
+	stem := strings.TrimSuffix(filepath.Base(base), ext)
+
+	// Candidates in priority order.
+	candidates := []string{
+		filepath.Join(dir, "conf-"+stem+".json.j2"),
+		filepath.Join(dir, stem+".json.j2"),
+		filepath.Join(dir, stem+".tpl"),
+		filepath.Join(dir, stem+".json"),
+		base, // original path as final fallback
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c, nil
 		}
 	}
-	// Strip extension and try each in order.
-	stem := strings.TrimSuffix(base, ext)
-	for _, e := range configExts[:3] {
-		candidate := stem + e
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
-	}
-	// Try original path.
-	if _, err := os.Stat(base); err == nil {
-		return base, nil
-	}
-	return "", fmt.Errorf("config file not found: %s (tried .j2/.tpl/.json)", base)
+	return "", fmt.Errorf("config file not found: %s (tried conf-%s.json.j2, %s.json.j2, .tpl, .json)",
+		base, stem, stem)
 }
 
 // --- node spec ---
@@ -411,25 +412,36 @@ func buildTopology(cfg RunConfig, dir string) ([]nodeSpec, error) {
 
 // --- helpers ---
 
-// loadRunConfig loads run.json from dir and merges ancestor run.json files
-// (walking up the directory tree) so parent directories provide defaults.
-// Child values always win over parent values.
+// findRunJSON returns the run.json or run.json.j2 path in dir, preferring .j2.
+func findRunJSON(dir string) string {
+	for _, name := range []string{"run.json.j2", "run.json"} {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// loadRunConfig loads run.json (or run.json.j2) from dir and merges ancestor
+// run.json files (walking up the directory tree). Child values always win.
+//
+// run.json.j2 files are rendered through Pongo2 before parsing, allowing
+// automatic test generation (loops, conditionals in run config itself).
 func loadRunConfig(dir string) (RunConfig, error) {
-	// Collect run.json paths from root down to dir.
+	// Collect run.json / run.json.j2 paths from root down to dir.
 	var chain []string
 	d := filepath.Clean(dir)
 	for {
-		p := filepath.Join(d, "run.json")
-		if _, err := os.Stat(p); err == nil {
+		if p := findRunJSON(d); p != "" {
 			chain = append([]string{p}, chain...) // prepend (root first)
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
 			break // filesystem root
 		}
-		// Stop if there's no run.json at all in the parent — avoid reading
-		// random directories above the examples tree.
-		if _, err := os.Stat(filepath.Join(parent, "run.json")); err != nil {
+		// Stop walking up when no run.json* in parent.
+		if findRunJSON(parent) == "" {
 			break
 		}
 		d = parent
@@ -451,20 +463,17 @@ func loadRunConfig(dir string) (RunConfig, error) {
 
 	levels := make([]level, 0, len(chain))
 	for _, path := range chain {
-		b, err := os.ReadFile(path)
+		b, err := loadAndRenderRunJSON(path)
 		if err != nil {
-			return RunConfig{}, fmt.Errorf("read %s: %w", path, err)
-		}
-		clean, err := json5.Strip(b)
-		if err != nil {
-			return RunConfig{}, fmt.Errorf("json5 strip %s: %w", path, err)
+			return RunConfig{}, fmt.Errorf("load %s: %w", path, err)
 		}
 		var m map[string]interface{}
-		if err := json.Unmarshal(clean, &m); err != nil {
+		if err := json.Unmarshal(b, &m); err != nil {
 			return RunConfig{}, fmt.Errorf("parse %s: %w", path, err)
 		}
 		levels = append(levels, level{raw: m, baseVars: flattenVars(m["vars"])})
 	}
+
 
 	// Merge scalar fields root → child.
 	merged := make(map[string]interface{})
@@ -506,6 +515,31 @@ func loadRunConfig(dir string) (RunConfig, error) {
 
 // flattenVars extracts a single merged map from a vars array or map,
 // stripping TITLE keys. Used to build ancestor defaults.
+// loadAndRenderRunJSON reads a run.json or run.json.j2 file, renders it
+// through Pongo2 if it has a .j2 extension, strips JSON5 extensions, and
+// returns valid JSON bytes ready for json.Unmarshal.
+func loadAndRenderRunJSON(path string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// For .j2 files, render through Pongo2 first (no vars — context comes
+	// from the template itself, e.g. hardcoded loops for auto-generation).
+	if strings.HasSuffix(path, ".j2") {
+		rendered, _, err := tmpl.Render(b, map[string]string{})
+		if err != nil {
+			return nil, fmt.Errorf("render run.json.j2: %w", err)
+		}
+		return rendered, nil
+	}
+	// Plain run.json — just strip JSON5.
+	clean, err := json5.Strip(b)
+	if err != nil {
+		return nil, fmt.Errorf("json5 strip: %w", err)
+	}
+	return clean, nil
+}
+
 func flattenVars(raw interface{}) map[string]string {
 	out := make(map[string]string)
 	switch v := raw.(type) {

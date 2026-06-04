@@ -1,12 +1,11 @@
 {
-    "client_process_path": "env.XRAY_CLIENT_PATH",
-    "server_process_path": "env.XRAY_SERVER_PATH",//if empty use client_process_path
-    "client_arg":"run -c ",
-    "server_arg":"run -c ",
+  // xray-core config — inherited by all examples under examples/xray/
+  "client_process_path": "env.XRAY_CLIENT_PATH",
+  "server_process_path": "env.XRAY_SERVER_PATH", // defaults to client_process_path
+  "client_arg": "run -c {{CONFIG_PATH}}",
+  "server_arg": "run -c {{CONFIG_PATH}}",         // defaults to client_arg
 
-    "vars":[
-        //override here
-    ]
-    //override other variables
-
+  "vars": [
+    // override here — inherits SERVER, PORT, SOCKS_PORT, UUID, PASSWORD from ../../run.json
+  ],
 }

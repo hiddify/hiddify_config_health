@@ -1,0 +1,22 @@
+{
+  // VLESS + xHTTP example — auto-generated from run.json.j2
+  // This Jinja2 template generates all test variant combinations automatically.
+  "name": "VLESS + xHTTP (xray)",
+  "server_config": "server",   // resolves: conf-server.json.j2 → server.json.j2
+  "client_config": "client",   // resolves: conf-client.json.j2 → client.json.j2
+
+  "vars": [
+    {% for flow in ["", "xtls-rprx-vision"] %}
+    {
+      "TITLE":      "{% if flow %}vless-flow{% else %}plain-tls{% endif %}",
+      "TLS":        "1",
+      "VLESS_ENC":  "none",
+      "VLESS_DEC":  "none",
+      "VLESS_FLOW": "{{ flow }}",
+    },
+    {% endfor %}
+  ],
+
+  "checks": ["dns", "http", "quic", "speedtest"],
+  "timeout_sec": 30,
+}

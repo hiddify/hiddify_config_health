@@ -5,6 +5,7 @@ package core
 import (
 	"context"
 	"io"
+	"strings"
 )
 
 // Core manages the lifecycle of one proxy process instance.
@@ -40,17 +41,41 @@ func New(name, binPath string) Core {
 	return f(binPath)
 }
 
-// NewRaw constructs a Core from an explicit binary path and a fixed arg prefix.
-// The config file path is appended after args when Start is called.
+// NewRaw constructs a Core from an explicit binary path and arg template.
+//
+// If any element of args contains "{{CONFIG_PATH}}", it is replaced with the
+// rendered config file path at Start time. If no element contains the
+// placeholder, the config path is appended at the end (backward compat).
 func NewRaw(binPath string, args []string) Core {
 	argsCopy := make([]string, len(args))
 	copy(argsCopy, args)
 	return &processCore{
 		name:    binPath,
 		binPath: binPath,
-		runArgs: func(cfg string) []string {
-			return append(argsCopy, cfg)
-		},
+		runArgs: buildRunArgs(argsCopy),
+	}
+}
+
+// buildRunArgs returns a runArgs function that substitutes {{CONFIG_PATH}}.
+// If no placeholder present, config path is appended at end.
+func buildRunArgs(args []string) func(string) []string {
+	const placeholder = "{{CONFIG_PATH}}"
+	hasPlaceholder := false
+	for _, a := range args {
+		if strings.Contains(a, placeholder) {
+			hasPlaceholder = true
+			break
+		}
+	}
+	return func(configPath string) []string {
+		if !hasPlaceholder {
+			return append(append([]string{}, args...), configPath)
+		}
+		out := make([]string, len(args))
+		for i, a := range args {
+			out[i] = strings.ReplaceAll(a, placeholder, configPath)
+		}
+		return out
 	}
 }
 

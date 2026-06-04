@@ -1,12 +1,11 @@
 {
-    "client_process_path": "env.HIDDIFY_CORE_CLIENT_PATH",
-    "server_process_path": "env.HIDDIFY_CORE_SERVER_PATH",//if empty use client_process_path
-    "client_arg":"srun -c ",
-    "server_arg":"srun -c ",
+  // hiddify-core config — inherited by all examples under examples/hiddify-core/
+  "client_process_path": "env.HIDDIFY_CORE_CLIENT_PATH",
+  "server_process_path": "env.HIDDIFY_CORE_SERVER_PATH", // defaults to client_process_path
+  "client_arg": "srun -c {{CONFIG_PATH}}",
+  "server_arg": "srun -c {{CONFIG_PATH}}",               // defaults to client_arg
 
-    "vars":[
-        //override here
-    ]
-    //override other variables
-
+  "vars": [
+    // override here — inherits SERVER, PORT, SOCKS_PORT, UUID, PASSWORD from ../../run.json
+  ],
 }

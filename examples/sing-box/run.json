@@ -1,13 +1,11 @@
 {
-  // sing-box core config — inherited by all examples under examples/sing-box/.
-  // Binary is auto-detected from PATH; override with SINGBOX_BIN env var.
-
+  // sing-box core config — inherited by all examples under examples/sing-box/
   "client_process_path": "env.SINGBOX_BIN",
   "server_process_path": "env.SINGBOX_BIN",
-  "client_arg": "run -c ",
-  "server_arg": "run -c ",
+  "client_arg": "run -c {{CONFIG_PATH}}",
+  "server_arg": "run -c {{CONFIG_PATH}}",
 
   "vars": [
-    // override here (inherits SERVER, PORT, UUID, etc. from ../../run.json)
+    // override here — inherits SERVER, PORT, UUID, etc. from ../../run.json
   ],
 }
