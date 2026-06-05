@@ -167,13 +167,21 @@ to the template.
 
 ### Auto-resolution
 
-`"auto"` in a vars value triggers runtime resolution:
+Use `{{AUTO_*}}` placeholders as var values to trigger runtime resolution:
 
-| Key | Resolution |
+| Value | Resolution |
 |---|---|
-| `PORT`, `TCP_PORT`, `UDP_PORT`, `QUIC_PORT`, `SOCKS_PORT`, `UPSTREAM_PORT` | Random free port |
-| `UUID` | `uuid.New()` v4 |
-| `PASSWORD` | 16 random bytes, hex-encoded |
+| `{{AUTO_PORT}}` | Random free TCP port |
+| `{{AUTO_TCP_PORT}}` | Random free TCP port |
+| `{{AUTO_UDP_PORT}}` | Random free TCP port |
+| `{{AUTO_QUIC_PORT}}` | Random free TCP port |
+| `{{AUTO_SOCKS_PORT}}` | Random free TCP port |
+| `{{AUTO_UPSTREAM_PORT}}` | Random free TCP port |
+| `{{AUTO_UUID}}` | `uuid.New()` v4 |
+| `{{AUTO_PASSWORD}}` | 16 random bytes, hex-encoded |
+
+Unlike the old `"auto"` string, these placeholders are unambiguous — a config
+value that legitimately contains the word `"auto"` is left untouched.
 
 Full placeholder reference: [placeholders.md](placeholders.md).
 

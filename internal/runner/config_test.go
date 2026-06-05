@@ -31,7 +31,7 @@ func TestLoadRunConfig_InheritanceVars(t *testing.T) {
 		"checks":      []string{"dns", "http"},
 		"timeout_sec": 30,
 		"vars": []interface{}{
-			map[string]interface{}{"TITLE": "T1", "SERVER": "127.0.0.1", "PORT": "auto", "SOCKS_PORT": "auto"},
+			map[string]interface{}{"TITLE": "T1", "SERVER": "127.0.0.1", "PORT": "{{AUTO_PORT}}", "SOCKS_PORT": "{{AUTO_SOCKS_PORT}}"},
 		},
 	})
 
@@ -48,8 +48,8 @@ func TestLoadRunConfig_InheritanceVars(t *testing.T) {
 		"server_config": "server.json",
 		"client_config": "client.json",
 		"vars": []interface{}{
-			map[string]interface{}{"TITLE": "plain-tls", "TLS": "1", "UUID": "auto"},
-			map[string]interface{}{"TITLE": "vless-flow", "TLS": "1", "UUID": "auto", "VLESS_FLOW": "xtls-rprx-vision"},
+			map[string]interface{}{"TITLE": "plain-tls", "TLS": "1", "UUID": "{{AUTO_UUID}}"},
+			map[string]interface{}{"TITLE": "vless-flow", "TLS": "1", "UUID": "{{AUTO_UUID}}", "VLESS_FLOW": "xtls-rprx-vision"},
 		},
 	})
 

@@ -24,11 +24,12 @@
 //
 // # Auto-resolved vars
 //
-// Set a var's value to "auto" in run.json and the runner picks:
+// Set a var's value to an AUTO placeholder in run.json and the runner picks:
 //
-//	PORT, SOCKS_PORT, UPSTREAM_PORT  →  random free TCP port
-//	UUID                              →  new UUID v4
-//	PASSWORD                          →  16 random bytes, hex-encoded
+//	{{AUTO_PORT}}, {{AUTO_TCP_PORT}}, {{AUTO_UDP_PORT}},
+//	{{AUTO_QUIC_PORT}}, {{AUTO_SOCKS_PORT}}, {{AUTO_UPSTREAM_PORT}}  →  random free TCP port
+//	{{AUTO_UUID}}      →  new UUID v4
+//	{{AUTO_PASSWORD}}  →  16 random bytes, hex-encoded
 package tmpl
 
 import (
@@ -85,8 +86,8 @@ func init() {
 	})
 }
 
-// Render renders src as a Pongo2/Jinja2 template against vars, resolves "auto"
-// values, then optionally strips JSON5 extensions.
+// Render renders src as a Pongo2/Jinja2 template against vars, resolves {{AUTO_*}}
+// sentinels, then optionally strips JSON5 extensions.
 //
 // stripJSON5 (optional, default true): when false, JSON5 comments and trailing
 // commas are kept in the output — useful for cores that accept JSON5, or for
@@ -95,7 +96,7 @@ func init() {
 // Returns: rendered bytes, fully-resolved vars map, error.
 func Render(src []byte, vars map[string]string, stripJSON5 ...bool) ([]byte, map[string]string, error) {
 	doStrip := len(stripJSON5) == 0 || stripJSON5[0]
-	// 1. Resolve "auto" vars before rendering so the template sees real values.
+	// 1. Resolve {{AUTO_*}} sentinels before rendering so the template sees real values.
 	resolved, err := resolveAuto(vars)
 	if err != nil {
 		return nil, nil, err
@@ -206,16 +207,22 @@ func buildContext(resolved map[string]string) pongo2.Context {
 	return ctx
 }
 
-// resolveAuto returns a copy of vars with "auto" values resolved.
+// autoPlaceholder returns the {{AUTO_KEY}} sentinel for a given var name.
+// Used when checking if a var value requests auto-resolution.
+func autoPlaceholder(key string) string { return "{{AUTO_" + key + "}}" }
+
+// resolveAuto returns a copy of vars with {{AUTO_*}} sentinels resolved.
+// Using explicit placeholders (instead of the bare string "auto") avoids
+// false matches when a config legitimately contains the word "auto".
 func resolveAuto(vars map[string]string) (map[string]string, error) {
 	out := make(map[string]string, len(vars))
 	for k, v := range vars {
 		out[k] = v
 	}
 
-	// All recognized port vars — "auto" gets a random free port each.
+	// Port vars — {{AUTO_PORT}} etc. get a random free port each.
 	for _, k := range []string{"PORT", "TCP_PORT", "UDP_PORT", "SOCKS_PORT", "UPSTREAM_PORT", "QUIC_PORT"} {
-		if out[k] == "auto" {
+		if out[k] == autoPlaceholder(k) {
 			p, err := freePort()
 			if err != nil {
 				return nil, fmt.Errorf("tmpl: free port for %s: %w", k, err)
@@ -238,12 +245,12 @@ func resolveAuto(vars map[string]string) (map[string]string, error) {
 
 	// Built-in protocol defaults — override in vars if needed.
 	builtinDefaults := map[string]string{
-		"LOG_LEVEL":   "error",
-		"VLESS_ENC":   "none",
-		"VLESS_DEC":   "none",
-		"VLESS_FLOW":  "",
-		"HOST_NAME":   "example.com",
-		"SNI_NAME":    "example.com",
+		"LOG_LEVEL":  "error",
+		"VLESS_ENC":  "none",
+		"VLESS_DEC":  "none",
+		"VLESS_FLOW": "",
+		"HOST_NAME":  "example.com",
+		"SNI_NAME":   "example.com",
 	}
 	for k, def := range builtinDefaults {
 		if out[k] == "" {
@@ -251,11 +258,11 @@ func resolveAuto(vars map[string]string) (map[string]string, error) {
 		}
 	}
 
-	if out["UUID"] == "auto" {
+	if out["UUID"] == autoPlaceholder("UUID") {
 		out["UUID"] = uuid.New().String()
 	}
 
-	if out["PASSWORD"] == "auto" {
+	if out["PASSWORD"] == autoPlaceholder("PASSWORD") {
 		b := make([]byte, 16)
 		if _, err := rand.Read(b); err != nil {
 			return nil, fmt.Errorf("tmpl: rand password: %w", err)

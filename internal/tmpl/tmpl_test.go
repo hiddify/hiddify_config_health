@@ -98,26 +98,40 @@ func TestRender_CommentInsideString(t *testing.T) {
 // --- auto resolution ---
 
 func TestRender_AutoPort(t *testing.T) {
-	out, resolved, _ := Render([]byte(`{"port":{{PORT}}}`), map[string]string{"PORT": "auto"})
-	if bytes.Contains(out, []byte("auto")) {
-		t.Errorf("auto not resolved: %s", out)
+	out, resolved, _ := Render([]byte(`{"port":{{PORT}}}`), map[string]string{"PORT": "{{AUTO_PORT}}"})
+	if bytes.Contains(out, []byte("AUTO_PORT")) {
+		t.Errorf("AUTO_PORT not resolved: %s", out)
 	}
-	if resolved["PORT"] == "auto" || resolved["PORT"] == "" {
+	if resolved["PORT"] == "{{AUTO_PORT}}" || resolved["PORT"] == "" {
 		t.Errorf("PORT not resolved: %q", resolved["PORT"])
 	}
 }
 
 func TestRender_AutoUUID(t *testing.T) {
-	out, _, _ := Render([]byte(`{"uuid":"{{UUID}}"}`), map[string]string{"UUID": "auto"})
-	if bytes.Contains(out, []byte("auto")) {
+	out, _, _ := Render([]byte(`{"uuid":"{{UUID}}"}`), map[string]string{"UUID": "{{AUTO_UUID}}"})
+	if bytes.Contains(out, []byte("AUTO_UUID")) {
 		t.Errorf("UUID not resolved: %s", out)
 	}
 }
 
 func TestRender_AutoPassword(t *testing.T) {
-	out, _, _ := Render([]byte(`{"pass":"{{PASSWORD}}"}`), map[string]string{"PASSWORD": "auto"})
-	if bytes.Contains(out, []byte("auto")) {
+	out, _, _ := Render([]byte(`{"pass":"{{PASSWORD}}"}`), map[string]string{"PASSWORD": "{{AUTO_PASSWORD}}"})
+	if bytes.Contains(out, []byte("AUTO_PASSWORD")) {
 		t.Errorf("PASSWORD not resolved: %s", out)
+	}
+}
+
+func TestRender_AutoLiteralPreserved(t *testing.T) {
+	// The word "auto" in a real config value must NOT be resolved.
+	out, resolved, err := Render([]byte(`{"mode":"{{ MODE }}"}`), map[string]string{"MODE": "auto"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !bytes.Contains(out, []byte("auto")) {
+		t.Errorf("literal 'auto' value was incorrectly resolved: %s", out)
+	}
+	if resolved["MODE"] != "auto" {
+		t.Errorf("MODE should stay 'auto', got %q", resolved["MODE"])
 	}
 }
 
@@ -132,5 +146,5 @@ func TestRender_Combined(t *testing.T) {
 		/* optional fields */
 		"network": ["tcp","udp"],
 	}`
-	renderOK(t, src, map[string]string{"PORT": "auto", "PASSWORD": "auto"})
+	renderOK(t, src, map[string]string{"PORT": "{{AUTO_PORT}}", "PASSWORD": "{{AUTO_PASSWORD}}"})
 }

@@ -217,16 +217,28 @@ same directory as the original.
 
 ## Auto-resolved vars
 
-Set a var to `"auto"` in `run.json` and the runner fills it in:
+Use `{{AUTO_*}}` placeholders as var values in `run.json` and the runner fills them in:
 
-| Var | Resolved to |
+```json5
+"vars": {
+  "PORT":       "{{AUTO_PORT}}",
+  "SOCKS_PORT": "{{AUTO_SOCKS_PORT}}",
+  "UUID":       "{{AUTO_UUID}}",
+  "PASSWORD":   "{{AUTO_PASSWORD}}"
+}
+```
+
+| Placeholder | Resolved to |
 |---|---|
-| `PORT`, `TCP_PORT`, `UDP_PORT`, `QUIC_PORT` | Random free port (each) |
-| `SOCKS_PORT`, `UPSTREAM_PORT` | Random free port |
-| `UUID` | UUID v4 (`uuid.New()`) |
-| `PASSWORD` | 16 random bytes, hex-encoded |
-| `LISTEN_SERVER` | Copied from `SERVER` when unset |
-| `LOG_LEVEL` | `"error"` when unset |
+| `{{AUTO_PORT}}`, `{{AUTO_TCP_PORT}}`, `{{AUTO_UDP_PORT}}`, `{{AUTO_QUIC_PORT}}` | Random free port |
+| `{{AUTO_SOCKS_PORT}}`, `{{AUTO_UPSTREAM_PORT}}` | Random free port |
+| `{{AUTO_UUID}}` | UUID v4 (`uuid.New()`) |
+| `{{AUTO_PASSWORD}}` | 16 random bytes, hex-encoded |
+| `LISTEN_SERVER` | Copied from `SERVER` when unset (automatic) |
+| `LOG_LEVEL` | `"error"` when unset (automatic) |
+
+Using explicit placeholders means a var value that legitimately contains the
+word `"auto"` is never misinterpreted.
 
 Full list: [placeholders.md](placeholders.md).
 
