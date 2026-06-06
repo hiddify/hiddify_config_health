@@ -243,16 +243,23 @@ func Run(ctx context.Context, cfg Config) ([]Result, error) {
 // Environment variables passed to the custom tester:
 //
 //	HCH_PROXY_ADDR   socks5://host:port (the client SOCKS proxy)
+//	HCH_SOCKS_PORT   port number only (e.g. "1080")
+//	HCH_SERVER       proxy host (e.g. "127.0.0.1")
 //	HCH_TIMEOUT      timeout in seconds
 func runCustomCheck(ctx context.Context, path string, cfg Config) (Result, error) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(timeoutCtx, path)
-	cmd.Env = append(cmd.Environ(),
-		"HCH_PROXY_ADDR="+cfg.ProxyAddr,
-		"HCH_TIMEOUT="+strconv.Itoa(int(cfg.Timeout.Seconds())),
-	)
+	env := []string{
+		"HCH_PROXY_ADDR=" + cfg.ProxyAddr,
+		"HCH_TIMEOUT=" + strconv.Itoa(int(cfg.Timeout.Seconds())),
+	}
+	if u, err := url.Parse(cfg.ProxyAddr); err == nil {
+		host, port, _ := net.SplitHostPort(u.Host)
+		env = append(env, "HCH_SERVER="+host, "HCH_SOCKS_PORT="+port)
+	}
+	cmd.Env = append(cmd.Environ(), env...)
 
 	out, err := cmd.CombinedOutput()
 	extra := strings.TrimSpace(string(out))

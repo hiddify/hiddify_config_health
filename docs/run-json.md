@@ -225,6 +225,8 @@ The binary receives these env vars:
 | Var | Value |
 |---|---|
 | `HCH_PROXY_ADDR` | `socks5://host:port` (the client SOCKS proxy) |
+| `HCH_SERVER` | proxy host (e.g. `127.0.0.1`) |
+| `HCH_SOCKS_PORT` | proxy port number (e.g. `1080`) |
 | `HCH_TIMEOUT` | timeout in seconds |
 
 Stdout/stderr from the binary appears in the result `Extra` field (truncated to 200 chars).
