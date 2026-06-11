@@ -38,10 +38,28 @@ type Result struct {
 	Err         error
 }
 
+// Overrides lets callers (e.g. the web UI) adjust a run.json's settings for a
+// single run without editing the file on disk.
+type Overrides struct {
+	// DeployToServer, if non-empty, overrides cfg.DeployToServer
+	// (ssh://user:pass@host:port — runs the server node remotely over SSH).
+	DeployToServer string
+
+	// Vars are merged into every variant's vars, overriding any existing keys.
+	// Useful for pointing SERVER at a remote host's address.
+	Vars map[string]string
+}
+
 // Run loads run.json from dir and executes the full test pipeline once per
 // variant (vars array entry). Returns one Result per variant.
 // Streams log to out (nil = discard).
 func Run(ctx context.Context, dir string, out io.Writer) ([]*Result, error) {
+	return RunWithOverrides(ctx, dir, out, Overrides{})
+}
+
+// RunWithOverrides is like Run but applies ov on top of the loaded run.json
+// before executing.
+func RunWithOverrides(ctx context.Context, dir string, out io.Writer, ov Overrides) ([]*Result, error) {
 	if out == nil {
 		out = io.Discard
 	}
@@ -51,7 +69,20 @@ func Run(ctx context.Context, dir string, out io.Writer) ([]*Result, error) {
 		return nil, err
 	}
 
+	if ov.DeployToServer != "" {
+		cfg.DeployToServer = ov.DeployToServer
+	}
+
 	variants := cfg.Variants()
+	for i := range variants {
+		if variants[i].Vars == nil {
+			variants[i].Vars = map[string]string{}
+		}
+		for k, val := range ov.Vars {
+			variants[i].Vars[k] = val
+		}
+	}
+
 	results := make([]*Result, 0, len(variants))
 	for _, v := range variants {
 		r, _ := runVariant(ctx, dir, cfg, v, out)
@@ -423,11 +454,15 @@ func findRunJSON(dir string) string {
 	return ""
 }
 
-// loadRunConfig loads run.json (or run.json.j2) from dir and merges ancestor
+// LoadRunConfig loads run.json (or run.json.j2) from dir and merges ancestor
 // run.json files (walking up the directory tree). Child values always win.
 //
 // run.json.j2 files are rendered through Pongo2 before parsing, allowing
 // automatic test generation (loops, conditionals in run config itself).
+func LoadRunConfig(dir string) (RunConfig, error) {
+	return loadRunConfig(dir)
+}
+
 func loadRunConfig(dir string) (RunConfig, error) {
 	// Collect run.json / run.json.j2 paths from root down to dir.
 	var chain []string

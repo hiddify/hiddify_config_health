@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hiddify/hiddify_config_health/internal/json5"
 	"github.com/hiddify/hiddify_config_health/internal/runner"
 	"github.com/hiddify/hiddify_config_health/internal/store"
 )
@@ -56,10 +55,12 @@ func (s *Server) handleExamples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type exampleInfo struct {
-		Dir     string `json:"dir"`
-		Name    string `json:"name"`
-		Core    string `json:"core"`
-		LastRun *store.Record `json:"last_run,omitempty"`
+		Dir            string `json:"dir"`
+		Name           string `json:"name"`
+		Core           string `json:"core"`
+		DeployToServer string `json:"deploy_to_server,omitempty"`
+		Server         string `json:"server,omitempty"`
+		LastRun        *store.Record `json:"last_run,omitempty"`
 	}
 	var out []exampleInfo
 	var latest []store.Record
@@ -71,7 +72,7 @@ func (s *Server) handleExamples(w http.ResponseWriter, r *http.Request) {
 		latestByDir[r.ExampleDir] = r
 	}
 	for _, e := range examples {
-		info := exampleInfo{Dir: e.dir, Name: e.name, Core: e.core}
+		info := exampleInfo{Dir: e.dir, Name: e.name, Core: e.core, DeployToServer: e.deployToServer, Server: e.server}
 		if rec, ok := latestByDir[e.dir]; ok {
 			info.LastRun = &rec
 		}
@@ -136,7 +137,14 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	results, runErr := runner.Run(r.Context(), dir, pw)
+	ov := runner.Overrides{
+		DeployToServer: strings.TrimSpace(r.URL.Query().Get("deploy")),
+	}
+	if server := strings.TrimSpace(r.URL.Query().Get("server")); server != "" {
+		ov.Vars = map[string]string{"SERVER": server}
+	}
+
+	results, runErr := runner.RunWithOverrides(r.Context(), dir, pw, ov)
 	_ = pw.Close()
 	drainWG.Wait() // ensure all log lines are flushed before sending result/done
 
@@ -202,9 +210,11 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 // --- helpers ---
 
 type exampleEntry struct {
-	dir  string
-	name string
-	core string
+	dir            string
+	name           string
+	core           string
+	deployToServer string
+	server         string
 }
 
 func scanExamples(root string) ([]exampleEntry, error) {
@@ -221,24 +231,19 @@ func scanExamples(root string) ([]exampleEntry, error) {
 		if !hasConfigFiles(dir) {
 			return nil
 		}
-		b, err := os.ReadFile(path)
+		cfg, err := runner.LoadRunConfig(dir)
 		if err != nil {
 			return nil
 		}
-		// Strip JSON5 before parsing so comments/trailing commas don't fail.
-		clean, err := json5.Strip(b)
-		if err != nil {
-			clean = b // fallback to raw
+		name := cfg.Name
+		if name == "" {
+			name = filepath.Base(dir)
 		}
-		var rc struct {
-			Name string `json:"name"`
-			Core string `json:"core"`
+		entry := exampleEntry{dir: dir, name: name, core: cfg.Core, deployToServer: cfg.DeployToServer}
+		if variants := cfg.Variants(); len(variants) > 0 {
+			entry.server = variants[0].Vars["SERVER"]
 		}
-		_ = json.Unmarshal(clean, &rc)
-		if rc.Name == "" {
-			rc.Name = filepath.Base(dir)
-		}
-		out = append(out, exampleEntry{dir: dir, name: rc.Name, core: rc.Core})
+		out = append(out, entry)
 		return nil
 	})
 	return out, err

@@ -21,8 +21,16 @@
   .badge.running{background:#1e3a5f;color:#93c5fd;animation:pulse 1s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
   #main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-  #toolbar{padding:12px 16px;border-bottom:1px solid #2d3748;display:flex;gap:8px;align-items:center;flex-shrink:0}
+  #toolbar{padding:12px 16px;border-bottom:1px solid #2d3748;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+  #toolbar-row1{display:flex;gap:8px;align-items:center}
   #toolbar h2{flex:1;font-size:1rem;color:#a78bfa}
+  #deploy-row{display:flex;gap:8px;align-items:center;font-size:.8rem;color:#a0aec0}
+  #deploy-row label{display:flex;flex-direction:column;gap:3px;flex:1}
+  #deploy-row input{background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;padding:6px 8px;font-size:.8rem;font-family:monospace}
+  #deploy-row input::placeholder{color:#4a5568}
+  .mode-badge{display:inline-block;padding:2px 8px;border-radius:9px;font-size:.7rem;font-weight:700}
+  .mode-local{background:#1e3a5f;color:#93c5fd}
+  .mode-remote{background:#78350f;color:#fde68a}
   button{padding:7px 16px;border-radius:6px;border:none;cursor:pointer;font-size:.85rem;font-weight:600}
   #btn-run{background:#6d28d9;color:#fff}
   #btn-run:hover{background:#7c3aed}
@@ -60,8 +68,19 @@
 
 <div id="main">
   <div id="toolbar">
-    <h2 id="title">Select an example</h2>
-    <button id="btn-run" disabled>▶ Run</button>
+    <div id="toolbar-row1">
+      <h2 id="title">Select an example</h2>
+      <span id="mode-badge" class="mode-badge mode-local" style="display:none">LOCAL</span>
+      <button id="btn-run" disabled>▶ Run</button>
+    </div>
+    <div id="deploy-row" style="display:none">
+      <label>Deploy to server (SSH URL — leave empty to run server locally)
+        <input id="inp-deploy" type="text" placeholder="ssh://user@host:22 or ssh://user:pass@host:22">
+      </label>
+      <label style="flex:0 0 220px">Server address (for client to connect to)
+        <input id="inp-server" type="text" placeholder="127.0.0.1">
+      </label>
+    </div>
   </div>
   <div id="content">
     <div id="log-panel"><div class="welcome">Select an example from the sidebar, then click Run.</div></div>
@@ -98,9 +117,23 @@ function selectExample(item) {
   document.getElementById('title').textContent = item.name;
   document.getElementById('btn-run').disabled = false;
   document.querySelectorAll('.example').forEach(e => e.classList.toggle('active', e.dataset.dir === item.dir));
+  document.getElementById('deploy-row').style.display = 'flex';
+  document.getElementById('mode-badge').style.display = 'inline-block';
+  document.getElementById('inp-deploy').value = item.deploy_to_server || '';
+  document.getElementById('inp-server').value = item.server || '';
+  updateModeBadge();
   clearLog();
   loadHistory(item.dir);
 }
+
+function updateModeBadge() {
+  const badge = document.getElementById('mode-badge');
+  const remote = document.getElementById('inp-deploy').value.trim() !== '';
+  badge.className = 'mode-badge ' + (remote ? 'mode-remote' : 'mode-local');
+  badge.textContent = remote ? 'REMOTE (SSH)' : 'LOCAL';
+}
+
+document.getElementById('inp-deploy').addEventListener('input', updateModeBadge);
 
 function clearLog() {
   document.getElementById('log-panel').innerHTML = '';
@@ -141,7 +174,13 @@ document.getElementById('btn-run').onclick = () => {
   clearLog();
   setRunning(true);
 
-  es = new EventSource(`/api/run?dir=${encodeURIComponent(selectedDir)}`);
+  const deploy = document.getElementById('inp-deploy').value.trim();
+  const server = document.getElementById('inp-server').value.trim();
+  let url = `/api/run?dir=${encodeURIComponent(selectedDir)}`;
+  if (deploy) url += `&deploy=${encodeURIComponent(deploy)}`;
+  if (server) url += `&server=${encodeURIComponent(server)}`;
+
+  es = new EventSource(url);
 
   es.addEventListener('log', e => {
     const t = e.data;
