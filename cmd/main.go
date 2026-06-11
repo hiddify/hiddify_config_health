@@ -115,6 +115,9 @@ func runOne(ctx context.Context, dir string, db *store.DB) error {
 		}
 		fmt.Printf("  [%s] %s  duration=%s  censor=%s\n",
 			label, status, res.Duration.Round(time.Millisecond), res.Fingerprint.Verdict)
+		if res.Err != nil {
+			fmt.Printf("    error: %v\n", res.Err)
+		}
 	}
 	if anyFail {
 		return fmt.Errorf("test failed")

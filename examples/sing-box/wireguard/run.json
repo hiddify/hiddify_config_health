@@ -12,11 +12,10 @@
   "vars": [
     {
       "TITLE": "wg-test",
-      // WireGuard key pairs — set via env or here directly:
-      // "WG_SERVER_PRIVKEY": "<base64 server private key>",
-      // "WG_SERVER_PUBKEY":  "<base64 server public key>",
-      // "WG_CLIENT_PRIVKEY": "<base64 client private key>",
-      // "WG_CLIENT_PUBKEY":  "<base64 client public key>",
+      "WG_SERVER_PRIVKEY": "uPiS0+/WJcomlFcVQuG6/eRWA0Bg7GBoq+EAeL5V23Y=",
+      "WG_SERVER_PUBKEY":  "t7y88aH9kzASz0t5u7lhHDkSstkL46fZCCSE/6yAEEg=",
+      "WG_CLIENT_PRIVKEY": "gLaFefR+ujDAsahKXiAPJkAddoKutwwZRZ3/7mWsH0g=",
+      "WG_CLIENT_PUBKEY":  "C8k8tl2QODvzkJNdQ9Ld6u+fCi+lTIE3e0uRyo/8Xkk=",
     },
   ],
 

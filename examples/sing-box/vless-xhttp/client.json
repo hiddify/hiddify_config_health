@@ -24,11 +24,9 @@
         "certificate_path": "{{TLS_CA}}"
       },
       "transport": {
-        "type": "xhttp",
-        "mode": "stream-up",
+        "type": "http",
         "host": "{{HOST_NAME}}",
-        "path": "/xhttp",
-        "domain_strategy": "prefer_ipv4"
+        "path": "/xhttp"
       }
     },
     {"type": "direct", "tag": "direct"}

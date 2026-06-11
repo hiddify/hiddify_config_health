@@ -3,8 +3,8 @@
 {% block inbound %}
 {
   "tag": "proxy-in",
-  "port": {{ TCP_PORT }},
-  "listen": "{{ LISTEN_SERVER }}",
+  "port": {{ PORT }},
+  "listen": "{{ SERVER }}",
   "protocol": "vless",
   "settings": {
     "clients": [
@@ -19,7 +19,7 @@
     {% include "../templates/tls/server.tpl" %}
     "network": "xhttp",
     "xhttpSettings": {
-      "mode": "stream-up",
+      "mode": "auto",
       "path": "/xhttp"
     }
   }

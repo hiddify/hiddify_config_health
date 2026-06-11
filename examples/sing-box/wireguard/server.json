@@ -2,17 +2,16 @@
   // sing-box WireGuard server config
   "log": {"level": "error"},
 
-  "inbounds": [
+  "endpoints": [
     {
       "type": "wireguard",
-      "tag":  "wg-in",
-      "listen":      "{{ SERVER }}",
+      "tag":  "wg-ep",
       "listen_port": {{ PORT }},
       "private_key": "{{ WG_SERVER_PRIVKEY }}",
       "peers": [
         {
-          "public_key":    "{{ WG_CLIENT_PUBKEY }}",
-          "allowed_ips":   ["0.0.0.0/0", "::/0"],
+          "public_key":  "{{ WG_CLIENT_PUBKEY }}",
+          "allowed_ips": ["10.0.0.2/32"],
         }
       ],
       "address": ["10.0.0.1/24"],

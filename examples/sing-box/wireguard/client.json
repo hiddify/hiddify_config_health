@@ -14,22 +14,30 @@
     }
   ],
 
-  "outbounds": [
+  "endpoints": [
     {
       "type": "wireguard",
-      "tag":  "wg-out",
-      "server":      "{{ SERVER }}",
-      "server_port": {{ PORT }},
+      "tag":  "wg-ep",
       "private_key": "{{ WG_CLIENT_PRIVKEY }}",
-      "peer_public_key": "{{ WG_SERVER_PUBKEY }}",
-      "address":     ["10.0.0.2/24"],
-      "mtu":         1420,
-    },
+      "peers": [
+        {
+          "address":    "{{ SERVER }}",
+          "port":       {{ PORT }},
+          "public_key": "{{ WG_SERVER_PUBKEY }}",
+          "allowed_ips": ["0.0.0.0/0", "::/0"],
+        }
+      ],
+      "address": ["10.0.0.2/24"],
+      "mtu":     1420,
+    }
+  ],
+
+  "outbounds": [
     {"type": "direct", "tag": "direct"},
   ],
 
   "route": {
-    "final":                  "wg-out",
+    "final":                  "wg-ep",
     "default_domain_resolver": "default",
     "auto_detect_interface":   true,
   },

@@ -4,7 +4,7 @@
   "name": "VLESS + xHTTP (xray)",
   "server_config": "server.json", // .j2 extension resolved automatically
   "client_config": "client.json",
-  "tls": false, // TLS injected per-variant below via TLS var
+  "tls": true,
 
   "vars": [
     {

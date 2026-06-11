@@ -4,6 +4,7 @@
   "name": "VLESS + xHTTP (xray)",
   "server_config": "server",
   "client_config": "client",
+  "tls": true,
 
   "vars": [
     {% for flow in ",xtls-rprx-vision"|split:"," %}
@@ -13,6 +14,8 @@
       "VLESS_ENC":  "none",
       "VLESS_DEC":  "none",
       "VLESS_FLOW": "{{ flow }}",
+      "HOST_NAME":  "127.0.0.1",
+      "SNI_NAME":   "127.0.0.1",
     },
     {% endfor %}
   ],

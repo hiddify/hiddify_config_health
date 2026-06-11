@@ -2,14 +2,14 @@
 
 {% block outbound %}
 {
-  "tag": "vless-out",
+  "tag": "proxy",
   "protocol": "vless",
   "settings": {
     "vnext": [
       {
         "address": "{{ SERVER }}",
         "port": {{ PORT }},
-        "users": [{"id": "{{ UUID }}", "encryption": "none"}]
+        "users": [{"id": "{{ UUID }}", "encryption": "{{ VLESS_ENC }}", "flow": "{{ VLESS_FLOW }}"}]
       }
     ]
   },
@@ -17,11 +17,10 @@
     "network": "xhttp",
     {% include "../templates/tls/client.tpl" %}
     "xhttpSettings": {
-      "mode": "stream-up",
+      "mode": "auto",
       "host": "{{ HOST_NAME }}",
       "path": "/xhttp"
     }
   }
-},
-{"protocol": "freedom", "tag": "direct"}
+}
 {% endblock %}

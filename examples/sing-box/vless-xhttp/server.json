@@ -16,8 +16,7 @@
         "key_path": "{{TLS_KEY}}"
       },
       "transport": {
-        "type": "xhttp",
-        "mode": "stream-up",
+        "type": "http",
         "path": "/xhttp"
       }
     }
