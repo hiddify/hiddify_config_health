@@ -57,12 +57,21 @@
   .history-section{margin-top:16px}
   .history-row{font-size:.75rem;padding:4px 0;border-bottom:1px solid #1a202c;display:flex;gap:8px;align-items:center}
   .welcome{color:#4a5568;padding:40px;text-align:center;font-size:.9rem}
+  #btn-run-all{width:calc(100% - 32px);margin:10px 16px;background:#065f46;color:#fff}
+  #btn-run-all:hover{background:#047857}
+  #btn-run-all:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
+  #summary-table{width:100%;border-collapse:collapse;font-size:.82rem}
+  #summary-table th,#summary-table td{padding:7px 10px;text-align:left;border-bottom:1px solid #1a202c}
+  #summary-table th{color:#718096;font-size:.72rem;text-transform:uppercase;position:sticky;top:0;background:#0d1117}
+  #summary-table tbody tr{cursor:pointer;transition:background .15s}
+  #summary-table tbody tr:hover{background:#1e2533}
 </style>
 </head>
 <body>
 
 <div id="sidebar">
   <h1>🛡 Hiddify Health</h1>
+  <button id="btn-run-all">▶ Run All</button>
   <div id="examples"><div class="welcome">Loading…</div></div>
 </div>
 
@@ -91,10 +100,12 @@
 <script>
 let selectedDir = null;
 let es = null;
+let examplesList = [];
 
 async function loadExamples() {
   const res = await fetch('/api/examples');
   const items = await res.json() || [];
+  examplesList = items;
   const el = document.getElementById('examples');
   if (!items.length) { el.innerHTML='<div class="welcome">No examples found.<br>Add run.json files to the examples/ directory.</div>'; return; }
   el.innerHTML = '';
@@ -282,7 +293,7 @@ async function loadHistory(dir) {
   section.className = 'history-section';
   let html = '<h3 style="font-size:.8rem;margin-bottom:6px">History</h3>';
   recs.slice(0,10).forEach(r => {
-    const d = new Date(r.StartedAt * 1000).toLocaleString();
+    const d = new Date(r.StartedAt).toLocaleString();
     const vLabel = r.Variant ? `<span style="color:#a78bfa;font-size:.7rem">${r.Variant}</span> ` : '';
     html += `<div class="history-row">
       <span class="${r.Pass?'check-ok':'check-fail'}">${r.Pass?'✓':'✗'}</span>
@@ -292,6 +303,86 @@ async function loadHistory(dir) {
   });
   section.innerHTML = html;
   panel.appendChild(section);
+}
+
+// --- Run All: run every example sequentially, show summary table ---
+const CHECKS_ORDER = ['dns','http','quic','download','upload','ping'];
+let runAllActive = false;
+
+document.getElementById('btn-run-all').onclick = runAll;
+
+async function runAll() {
+  if (runAllActive || !examplesList.length) return;
+  runAllActive = true;
+  const btnAll = document.getElementById('btn-run-all');
+  btnAll.disabled = true;
+  btnAll.textContent = '⏳ Running all…';
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('title').textContent = 'Run All — summary';
+  document.getElementById('deploy-row').style.display = 'none';
+  document.getElementById('mode-badge').style.display = 'none';
+  document.querySelectorAll('.example').forEach(e => e.classList.remove('active'));
+  selectedDir = null;
+
+  const log = document.getElementById('log-panel');
+  log.innerHTML = `<table id="summary-table"><thead><tr>
+    <th>Example</th><th>Variant</th>${CHECKS_ORDER.map(c=>`<th>${c}</th>`).join('')}
+    <th>Censor</th><th>Time</th><th>Status</th>
+  </tr></thead><tbody></tbody></table>`;
+  document.getElementById('checks-list').innerHTML = '<h3>Results</h3>';
+  const tbody = log.querySelector('tbody');
+
+  for (const item of examplesList) {
+    const phRow = document.createElement('tr');
+    phRow.innerHTML = `<td>${item.name}</td><td colspan="${CHECKS_ORDER.length+4}"><span class="badge running">RUNNING</span></td>`;
+    tbody.appendChild(phRow);
+    await runOneCollect(item, tbody, phRow);
+  }
+
+  runAllActive = false;
+  btnAll.disabled = false;
+  btnAll.textContent = '▶ Run All';
+  loadExamples(); // refresh sidebar badges
+}
+
+function runOneCollect(item, tbody, phRow) {
+  return new Promise(resolve => {
+    const src = new EventSource(`/api/run?dir=${encodeURIComponent(item.dir)}`);
+    const results = [];
+    let finished = false;
+    src.addEventListener('result', e => { try { results.push(JSON.parse(e.data)); } catch(_){} });
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      src.close();
+      phRow.remove();
+      if (!results.length) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${item.name}</td><td colspan="${CHECKS_ORDER.length+4}"><span class="badge fail">ERROR — no result (see example page for log)</span></td>`;
+        tr.onclick = () => selectExample(item);
+        tbody.appendChild(tr);
+      }
+      results.forEach(r => {
+        const byName = {};
+        (r.Checks||[]).forEach(c => byName[c.Name] = c.OK);
+        const cells = CHECKS_ORDER.map(c =>
+          byName[c] === undefined ? '<td style="color:#4a5568">—</td>'
+          : `<td class="${byName[c]?'check-ok':'check-fail'}">${byName[c]?'✓':'✗'}</td>`).join('');
+        const variant = r.Variant && r.Variant !== r.Name ? r.Variant : '';
+        const ms = Math.round((r.Duration||0)/1e6);
+        const censor = r.Fingerprint ? (r.Fingerprint.Verdict||'') : '';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${r.Name||item.name}</td><td style="color:#a78bfa">${variant}</td>${cells}
+          <td>${censor}</td><td style="color:#718096">${ms}ms</td>
+          <td><span class="badge ${r.Pass?'pass':'fail'}">${r.Pass?'PASS':'FAIL'}</span></td>`;
+        tr.onclick = () => selectExample(item);
+        tbody.appendChild(tr);
+      });
+      resolve();
+    };
+    src.addEventListener('done', finish);
+    src.onerror = () => finish(); // network-level error — move on to next example
+  });
 }
 
 loadExamples();
