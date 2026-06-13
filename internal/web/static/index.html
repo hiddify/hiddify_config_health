@@ -151,14 +151,21 @@ function lastRunMeta(rec) {
     const cls = 'fp-'+fp.Verdict;
     meta += `<span class="fp-badge ${cls}" style="margin:4px 6px 0 0;font-size:.65rem;padding:1px 6px">${fp.Verdict}</span>`;
   }
-  let speed = '';
+  let dl = 0, ul = 0;
   (rec.Checks||[]).forEach(c => {
-    if ((c.Name==='download'||c.Name==='speedtest') && c.Throughput) {
-      speed = (c.Throughput/1024).toFixed(0)+' KB/s';
-    }
+    if ((c.Name==='download'||c.Name==='speedtest') && c.Throughput) dl = c.Throughput;
+    if (c.Name==='upload' && c.Throughput) ul = c.Throughput;
   });
-  if (speed) meta += `<span class="ex-meta" style="display:inline">⚡ ${speed}</span>`;
+  let speed = '';
+  if (dl) speed += `↓ ${fmtSpeed(dl)}`;
+  if (ul) speed += `${dl?'  ':''}↑ ${fmtSpeed(ul)}`;
+  if (speed) meta += `<span class="ex-meta" style="display:inline">${speed}</span>`;
   return `<div style="margin-top:4px">${badge}${meta}</div>`;
+}
+
+// fmtSpeed renders bytes/sec as KB/s or MB/s.
+function fmtSpeed(bps) {
+  return bps >= 1048576 ? (bps/1048576).toFixed(1)+' MB/s' : (bps/1024).toFixed(0)+' KB/s';
 }
 
 function selectExample(item) {
