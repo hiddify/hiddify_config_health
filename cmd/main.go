@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -35,7 +36,59 @@ var (
 	flagExamplesDir string
 	flagTimeout     int
 	flagQuiet       bool
+	flagJSON        bool
+	flagCore        string
 )
+
+// jsonCheck is the CI-friendly serialization of a single health check.
+type jsonCheck struct {
+	Name     string `json:"name"`
+	OK       bool   `json:"ok"`
+	Optional bool   `json:"optional"`
+	Extra    string `json:"extra,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// jsonResult is the CI-friendly serialization of one variant's run.
+type jsonResult struct {
+	Dir         string      `json:"dir"`
+	Name        string      `json:"name"`
+	Variant     string      `json:"variant,omitempty"`
+	Core        string      `json:"core,omitempty"`
+	CoreVersion string      `json:"core_version,omitempty"`
+	Pass        bool        `json:"pass"`
+	Censor      string      `json:"censor,omitempty"`
+	DurationMs  int64       `json:"duration_ms"`
+	Checks      []jsonCheck `json:"checks"`
+	Error       string      `json:"error,omitempty"`
+}
+
+// jsonReport is the top-level CI output for run-all.
+type jsonReport struct {
+	Passed  int          `json:"passed"`
+	Failed  int          `json:"failed"`
+	Results []jsonResult `json:"results"`
+}
+
+func toJSONResult(dir, core string, res *runner.Result) jsonResult {
+	jr := jsonResult{
+		Dir: dir, Name: res.Name, Variant: res.Variant, Core: core,
+		CoreVersion: res.CoreVersion, Pass: res.Pass,
+		Censor:     res.Fingerprint.Verdict,
+		DurationMs: res.Duration.Milliseconds(),
+	}
+	if res.Err != nil {
+		jr.Error = res.Err.Error()
+	}
+	for _, c := range res.Checks {
+		jc := jsonCheck{Name: c.Name, OK: c.OK, Optional: c.Optional, Extra: c.Extra}
+		if c.Err != nil {
+			jc.Error = c.Err.Error()
+		}
+		jr.Checks = append(jr.Checks, jc)
+	}
+	return jr
+}
 
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
@@ -62,7 +115,7 @@ func rootCmd() *cobra.Command {
 // --- run ---
 
 func runCmd() *cobra.Command {
-	return &cobra.Command{
+	c := &cobra.Command{
 		Use:   "run <example-dir>",
 		Short: "Run one example test",
 		Args:  cobra.ExactArgs(1),
@@ -71,22 +124,43 @@ func runCmd() *cobra.Command {
 			if db != nil {
 				defer db.Close()
 			}
-			return runOne(cmd.Context(), args[0], db)
+			jrs, anyFail := runOne(cmd.Context(), args[0], db)
+			if flagJSON {
+				printJSONReport(jrs)
+			}
+			if anyFail {
+				return fmt.Errorf("test failed")
+			}
+			return nil
 		},
 	}
+	c.Flags().BoolVar(&flagJSON, "json", false, "emit machine-readable JSON report (for CI)")
+	return c
 }
 
-func runOne(ctx context.Context, dir string, db *store.DB) error {
-	fmt.Printf("▶ %s\n", dir)
+// runOne runs every variant of one example, persists to db, prints the
+// human log/summary (unless --json), and returns the JSON results plus
+// whether any variant failed.
+func runOne(ctx context.Context, dir string, db *store.DB) ([]jsonResult, bool) {
 	logOut := io.Writer(os.Stdout)
-	if flagQuiet {
+	if flagQuiet || flagJSON {
 		logOut = io.Discard
 	}
-	results, err := runner.Run(ctx, dir, logOut)
-	if err != nil {
-		fmt.Printf("  ERROR: %v\n", err)
-		return err
+	if !flagJSON {
+		fmt.Printf("▶ %s\n", dir)
 	}
+
+	core := coreOf(dir)
+	results, err := runner.Run(ctx, dir, logOut)
+	if err != nil && len(results) == 0 {
+		// Hard failure before any variant produced a result.
+		if !flagJSON {
+			fmt.Printf("  ERROR: %v\n", err)
+		}
+		return []jsonResult{{Dir: dir, Name: filepath.Base(dir), Core: core, Pass: false, Error: err.Error()}}, true
+	}
+
+	var jrs []jsonResult
 	anyFail := false
 	for _, res := range results {
 		if db != nil {
@@ -104,34 +178,63 @@ func runOne(ctx context.Context, dir string, db *store.DB) error {
 			}
 			_, _ = db.Save(rec)
 		}
-		status := "PASS"
+		jrs = append(jrs, toJSONResult(dir, core, res))
 		if !res.Pass {
-			status = "FAIL"
 			anyFail = true
 		}
-		label := res.Name
-		if res.Variant != "" && res.Variant != res.Name {
-			label = res.Variant
-		}
-		fmt.Printf("  [%s] %s  duration=%s  censor=%s\n",
-			label, status, res.Duration.Round(time.Millisecond), res.Fingerprint.Verdict)
-		if res.Err != nil {
-			fmt.Printf("    error: %v\n", res.Err)
+		if !flagJSON {
+			status := "PASS"
+			if !res.Pass {
+				status = "FAIL"
+			}
+			label := res.Name
+			if res.Variant != "" && res.Variant != res.Name {
+				label = res.Variant
+			}
+			fmt.Printf("  [%s] %s  duration=%s  censor=%s\n",
+				label, status, res.Duration.Round(time.Millisecond), res.Fingerprint.Verdict)
+			if res.Err != nil {
+				fmt.Printf("    error: %v\n", res.Err)
+			}
 		}
 	}
-	if anyFail {
-		return fmt.Errorf("test failed")
+	return jrs, anyFail
+}
+
+// coreOf returns the core name declared in dir's run config ("" if unknown).
+func coreOf(dir string) string {
+	cfg, err := runner.LoadRunConfig(dir)
+	if err != nil {
+		return ""
 	}
-	return nil
+	return cfg.Core
+}
+
+func printJSONReport(results []jsonResult) {
+	rep := jsonReport{Results: results}
+	for _, r := range results {
+		if r.Pass {
+			rep.Passed++
+		} else {
+			rep.Failed++
+		}
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(rep)
 }
 
 // --- run-all ---
 
 func runAllCmd() *cobra.Command {
-	return &cobra.Command{
+	c := &cobra.Command{
 		Use:   "run-all [examples-dir]",
 		Short: "Run all examples; exit 1 if any fail",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Run all examples under the given directory (default: ./examples).\n" +
+			"Pass a subdirectory to test only that subtree, e.g.\n" +
+			"  hiddify-health run-all examples/xray\n" +
+			"Filter by core with --core, e.g. --core sing-box.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := flagExamplesDir
 			if len(args) > 0 {
@@ -141,8 +244,15 @@ func runAllCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if flagCore != "" {
+				dirs = filterByCore(dirs, flagCore)
+			}
 			if len(dirs) == 0 {
-				fmt.Println("No run.json files found under", root)
+				if !flagJSON {
+					fmt.Println("No matching examples found under", root)
+				} else {
+					printJSONReport(nil)
+				}
 				return nil
 			}
 
@@ -151,21 +261,42 @@ func runAllCmd() *cobra.Command {
 				defer db.Close()
 			}
 
+			var allJRS []jsonResult
 			pass, fail := 0, 0
 			for _, dir := range dirs {
-				if err := runOne(cmd.Context(), dir, db); err != nil {
+				jrs, anyFail := runOne(cmd.Context(), dir, db)
+				allJRS = append(allJRS, jrs...)
+				if anyFail {
 					fail++
 				} else {
 					pass++
 				}
 			}
-			fmt.Printf("\n--- %d passed  %d failed ---\n", pass, fail)
+			if flagJSON {
+				printJSONReport(allJRS)
+			} else {
+				fmt.Printf("\n--- %d passed  %d failed ---\n", pass, fail)
+			}
 			if fail > 0 {
 				return fmt.Errorf("%d test(s) failed", fail)
 			}
 			return nil
 		},
 	}
+	c.Flags().BoolVar(&flagJSON, "json", false, "emit machine-readable JSON report (for CI)")
+	c.Flags().StringVar(&flagCore, "core", "", "only run examples for this core (e.g. sing-box, xray)")
+	return c
+}
+
+// filterByCore keeps only example dirs whose run config declares the given core.
+func filterByCore(dirs []string, core string) []string {
+	var out []string
+	for _, dir := range dirs {
+		if coreOf(dir) == core {
+			out = append(out, dir)
+		}
+	}
+	return out
 }
 
 // --- check ---

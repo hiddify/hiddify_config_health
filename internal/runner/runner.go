@@ -304,6 +304,7 @@ func runVariant(ctx context.Context, dir string, cfg RunConfig, v Variant, out i
 		}
 		log.Printf("%s", msg)
 	}
+	res.Checks = hresults
 	res.Pass = pass
 	res.Fingerprint = detect.Passive(hresults)
 

@@ -15,6 +15,7 @@
   .example.active{background:#1e2a3a}
   .ex-name{font-weight:600;font-size:.9rem}
   .ex-core{font-size:.75rem;color:#718096;margin-top:2px}
+  .ex-meta{font-size:.7rem;color:#718096;margin-top:3px}
   .badge{display:inline-block;padding:2px 7px;border-radius:9px;font-size:.7rem;font-weight:700;margin-top:4px}
   .badge.pass{background:#065f46;color:#6ee7b7}
   .badge.fail{background:#7f1d1d;color:#fca5a5}
@@ -61,6 +62,7 @@
   #btn-run-all{width:calc(100% - 32px);margin:10px 16px;background:#065f46;color:#fff}
   #btn-run-all:hover{background:#047857}
   #btn-run-all:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
+  #core-filter{margin:0 16px 8px;padding:6px 8px;background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;font-size:.8rem;width:calc(100% - 32px)}
   #summary-table{width:100%;border-collapse:collapse;font-size:.82rem}
   #summary-table th,#summary-table td{padding:7px 10px;text-align:left;border-bottom:1px solid #1a202c}
   #summary-table th{color:#718096;font-size:.72rem;text-transform:uppercase;position:sticky;top:0;background:#0d1117}
@@ -73,6 +75,7 @@
 <div id="sidebar">
   <h1>🛡 Hiddify Health</h1>
   <button id="btn-run-all">▶ Run All</button>
+  <select id="core-filter" title="Filter by core"><option value="">All cores</option></select>
   <div id="examples"><div class="welcome">Loading…</div></div>
 </div>
 
@@ -107,21 +110,55 @@ async function loadExamples() {
   const res = await fetch('/api/examples');
   const items = await res.json() || [];
   examplesList = items;
+  // Populate the core filter dropdown (preserve current selection).
+  const sel = document.getElementById('core-filter');
+  const cur = sel.value;
+  const cores = [...new Set(items.map(i => i.core).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All cores</option>' +
+    cores.map(c => `<option value="${c}">${c}</option>`).join('');
+  sel.value = cur;
+  renderExamples();
+}
+
+function visibleExamples() {
+  const core = document.getElementById('core-filter').value;
+  return core ? examplesList.filter(i => i.core === core) : examplesList;
+}
+
+function renderExamples() {
+  const items = visibleExamples();
   const el = document.getElementById('examples');
-  if (!items.length) { el.innerHTML='<div class="welcome">No examples found.<br>Add run.json files to the examples/ directory.</div>'; return; }
+  if (!items.length) { el.innerHTML='<div class="welcome">No examples for this filter.</div>'; return; }
   el.innerHTML = '';
   items.forEach(item => {
     const div = document.createElement('div');
     div.className = 'example';
     div.dataset.dir = item.dir;
-    let badge = '';
-    if (item.last_run) {
-      badge = `<span class="badge ${item.last_run.pass?'pass':'fail'}">${item.last_run.pass?'PASS':'FAIL'}</span>`;
-    }
-    div.innerHTML = `<div class="ex-name">${item.name}</div><div class="ex-core">${item.core||''}</div>${badge}`;
+    div.innerHTML = `<div class="ex-name">${item.name}</div><div class="ex-core">${item.core||''}</div>${lastRunMeta(item.last_run)}`;
     div.onclick = () => selectExample(item);
     el.appendChild(div);
   });
+}
+
+// lastRunMeta renders the PASS/FAIL badge plus censor verdict + throughput
+// from the last stored run (store.Record marshals fields PascalCase).
+function lastRunMeta(rec) {
+  if (!rec) return '<div class="ex-meta">not run yet</div>';
+  const badge = `<span class="badge ${rec.Pass?'pass':'fail'}">${rec.Pass?'PASS':'FAIL'}</span>`;
+  let meta = '';
+  const fp = rec.Fingerprint || {};
+  if (fp.Verdict && fp.Verdict !== 'unknown') {
+    const cls = 'fp-'+fp.Verdict;
+    meta += `<span class="fp-badge ${cls}" style="margin:4px 6px 0 0;font-size:.65rem;padding:1px 6px">${fp.Verdict}</span>`;
+  }
+  let speed = '';
+  (rec.Checks||[]).forEach(c => {
+    if ((c.Name==='download'||c.Name==='speedtest') && c.Throughput) {
+      speed = (c.Throughput/1024).toFixed(0)+' KB/s';
+    }
+  });
+  if (speed) meta += `<span class="ex-meta" style="display:inline">⚡ ${speed}</span>`;
+  return `<div style="margin-top:4px">${badge}${meta}</div>`;
 }
 
 function selectExample(item) {
@@ -314,9 +351,11 @@ const CHECKS_ORDER = ['dns','http','quic','download','upload','ping'];
 let runAllActive = false;
 
 document.getElementById('btn-run-all').onclick = runAll;
+document.getElementById('core-filter').addEventListener('change', renderExamples);
 
 async function runAll() {
-  if (runAllActive || !examplesList.length) return;
+  const toRun = visibleExamples();
+  if (runAllActive || !toRun.length) return;
   runAllActive = true;
   const btnAll = document.getElementById('btn-run-all');
   btnAll.disabled = true;
@@ -336,7 +375,7 @@ async function runAll() {
   document.getElementById('checks-list').innerHTML = '<h3>Results</h3>';
   const tbody = log.querySelector('tbody');
 
-  for (const item of examplesList) {
+  for (const item of toRun) {
     const phRow = document.createElement('tr');
     phRow.innerHTML = `<td>${item.name}</td><td colspan="${CHECKS_ORDER.length+4}"><span class="badge running">RUNNING</span></td>`;
     tbody.appendChild(phRow);
