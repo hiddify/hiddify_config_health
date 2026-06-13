@@ -38,6 +38,7 @@ var (
 	flagQuiet       bool
 	flagJSON        bool
 	flagCore        string
+	flagDeploy      string
 )
 
 // jsonCheck is the CI-friendly serialization of a single health check.
@@ -135,6 +136,7 @@ func runCmd() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&flagJSON, "json", false, "emit machine-readable JSON report (for CI)")
+	c.Flags().StringVar(&flagDeploy, "deploy", "", "deploy server to this SSH URL for all examples (ssh://user:pass@host:22)")
 	return c
 }
 
@@ -151,7 +153,7 @@ func runOne(ctx context.Context, dir string, db *store.DB) ([]jsonResult, bool) 
 	}
 
 	core := coreOf(dir)
-	results, err := runner.Run(ctx, dir, logOut)
+	results, err := runner.RunWithOverrides(ctx, dir, logOut, runner.Overrides{DeployToServer: flagDeploy})
 	if err != nil && len(results) == 0 {
 		// Hard failure before any variant produced a result.
 		if !flagJSON {
@@ -285,6 +287,7 @@ func runAllCmd() *cobra.Command {
 	}
 	c.Flags().BoolVar(&flagJSON, "json", false, "emit machine-readable JSON report (for CI)")
 	c.Flags().StringVar(&flagCore, "core", "", "only run examples for this core (e.g. sing-box, xray)")
+	c.Flags().StringVar(&flagDeploy, "deploy", "", "deploy server to this SSH URL for ALL examples (ssh://user:pass@host:22)")
 	return c
 }
 

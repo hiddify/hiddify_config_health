@@ -63,6 +63,8 @@
   #btn-run-all:hover{background:#047857}
   #btn-run-all:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
   #core-filter{margin:0 16px 8px;padding:6px 8px;background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;font-size:.8rem;width:calc(100% - 32px)}
+  #global-deploy{margin:0 16px 8px;padding:6px 8px;background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;font-size:.72rem;font-family:monospace;width:calc(100% - 32px)}
+  #global-deploy::placeholder{color:#4a5568}
   #summary-table{width:100%;border-collapse:collapse;font-size:.82rem}
   #summary-table th,#summary-table td{padding:7px 10px;text-align:left;border-bottom:1px solid #1a202c}
   #summary-table th{color:#718096;font-size:.72rem;text-transform:uppercase;position:sticky;top:0;background:#0d1117}
@@ -75,6 +77,7 @@
 <div id="sidebar">
   <h1>🛡 Hiddify Health</h1>
   <button id="btn-run-all">▶ Run All</button>
+  <input id="global-deploy" type="text" placeholder="Global SSH (ssh://user:pass@host:22) — applies to Run All" title="Deploy server to this host for every example in Run All">
   <select id="core-filter" title="Filter by core"><option value="">All cores</option></select>
   <div id="examples"><div class="welcome">Loading…</div></div>
 </div>
@@ -360,10 +363,17 @@ let runAllActive = false;
 document.getElementById('btn-run-all').onclick = runAll;
 document.getElementById('core-filter').addEventListener('change', renderExamples);
 
+// summaryRows holds the collected Run All results; the table is re-rendered
+// from this array whenever sort/filter changes.
+let summaryRows = [];
+let sortKey = 'name', sortDir = 1;
+let statusFilter = 'all'; // all | pass | fail
+
 async function runAll() {
   const toRun = visibleExamples();
   if (runAllActive || !toRun.length) return;
   runAllActive = true;
+  summaryRows = [];
   const btnAll = document.getElementById('btn-run-all');
   btnAll.disabled = true;
   btnAll.textContent = '⏳ Running all…';
@@ -373,20 +383,20 @@ async function runAll() {
   document.getElementById('mode-badge').style.display = 'none';
   document.querySelectorAll('.example').forEach(e => e.classList.remove('active'));
   selectedDir = null;
-
-  const log = document.getElementById('log-panel');
-  log.innerHTML = `<table id="summary-table"><thead><tr>
-    <th>Example</th><th>Variant</th>${CHECKS_ORDER.map(c=>`<th>${c}</th>`).join('')}
-    <th>Censor</th><th>Time</th><th>Status</th>
-  </tr></thead><tbody></tbody></table>`;
   document.getElementById('checks-list').innerHTML = '<h3>Results</h3>';
-  const tbody = log.querySelector('tbody');
 
   for (const item of toRun) {
-    const phRow = document.createElement('tr');
-    phRow.innerHTML = `<td>${item.name}</td><td colspan="${CHECKS_ORDER.length+4}"><span class="badge running">RUNNING</span></td>`;
-    tbody.appendChild(phRow);
-    await runOneCollect(item, tbody, phRow);
+    summaryRows.push({ name: item.name, variant: '', item, running: true });
+    renderSummary();
+    const got = await runOneCollect(item);
+    // Remove the placeholder for this item and append real rows.
+    summaryRows = summaryRows.filter(r => !(r.item === item && r.running));
+    if (!got.length) {
+      summaryRows.push({ name: item.name, variant: '', item, error: true, pass: false });
+    } else {
+      got.forEach(r => summaryRows.push(rowFromResult(r, item)));
+    }
+    renderSummary();
   }
 
   runAllActive = false;
@@ -395,9 +405,108 @@ async function runAll() {
   loadExamples(); // refresh sidebar badges
 }
 
-function runOneCollect(item, tbody, phRow) {
+function speedOf(checks, names) {
+  for (const c of (checks||[])) if (names.includes(c.Name) && c.Throughput) return c.Throughput;
+  return 0;
+}
+
+function rowFromResult(r, item) {
+  const byName = {};
+  (r.Checks||[]).forEach(c => byName[c.Name] = c);
+  return {
+    name: r.Name || item.name,
+    variant: (r.Variant && r.Variant !== r.Name) ? r.Variant : '',
+    item, pass: !!r.Pass,
+    censor: r.Fingerprint ? (r.Fingerprint.Verdict||'') : '',
+    ms: Math.round((r.Duration||0)/1e6),
+    dl: speedOf(r.Checks, ['download','speedtest']),
+    ul: speedOf(r.Checks, ['upload']),
+    checks: byName,
+  };
+}
+
+const SUMMARY_COLS = [
+  {key:'name',    label:'Example'},
+  {key:'variant', label:'Variant'},
+  ...CHECKS_ORDER.map(c => ({key:'chk_'+c, label:c, check:c})),
+  {key:'dl',      label:'↓ DL'},
+  {key:'ul',      label:'↑ UL'},
+  {key:'censor',  label:'Censor'},
+  {key:'ms',      label:'Time'},
+  {key:'pass',    label:'Status'},
+];
+
+function sortVal(row, key) {
+  if (key.startsWith('chk_')) { const c = row.checks && row.checks[key.slice(4)]; return c ? (c.OK?2:(c.Optional?1:0)) : -1; }
+  if (key === 'pass') return row.pass ? 1 : 0;
+  return row[key] !== undefined ? row[key] : '';
+}
+
+function renderSummary() {
+  const log = document.getElementById('log-panel');
+  let rows = summaryRows.slice();
+  if (statusFilter !== 'all') rows = rows.filter(r => r.running || (statusFilter==='pass'?r.pass:!r.pass));
+  // Stable sort (placeholders/running rows keep insertion order at bottom).
+  rows.sort((a,b) => {
+    if (a.running !== b.running) return a.running ? 1 : -1;
+    const va = sortVal(a, sortKey), vb = sortVal(b, sortKey);
+    if (va < vb) return -1*sortDir; if (va > vb) return 1*sortDir; return 0;
+  });
+
+  const arrow = k => k===sortKey ? (sortDir>0?' ▲':' ▼') : '';
+  const head = SUMMARY_COLS.map(c => `<th data-key="${c.key}" style="cursor:pointer">${c.label}${arrow(c.key)}</th>`).join('');
+
+  const body = rows.map(r => {
+    if (r.running) return `<tr><td>${r.name}</td><td colspan="${SUMMARY_COLS.length-1}"><span class="badge running">RUNNING</span></td></tr>`;
+    if (r.error) return `<tr data-dir="${r.item.dir}"><td>${r.name}</td><td colspan="${SUMMARY_COLS.length-1}"><span class="badge fail">ERROR — no result (open example for log)</span></td></tr>`;
+    const cells = CHECKS_ORDER.map(name => {
+      const c = r.checks[name];
+      if (!c) return '<td style="color:#4a5568">—</td>';
+      const cls = c.OK ? 'check-ok' : (c.Optional ? 'check-warn' : 'check-fail');
+      return `<td class="${cls}">${c.OK?'✓':(c.Optional?'!':'✗')}</td>`;
+    }).join('');
+    return `<tr data-dir="${r.item.dir}">
+      <td>${r.name}</td><td style="color:#a78bfa">${r.variant}</td>${cells}
+      <td style="color:#718096">${r.dl?fmtSpeed(r.dl):'—'}</td>
+      <td style="color:#718096">${r.ul?fmtSpeed(r.ul):'—'}</td>
+      <td>${r.censor}</td><td style="color:#718096">${r.ms}ms</td>
+      <td><span class="badge ${r.pass?'pass':'fail'}">${r.pass?'PASS':'FAIL'}</span></td>
+    </tr>`;
+  }).join('');
+
+  const counts = summaryRows.filter(r=>!r.running);
+  const np = counts.filter(r=>r.pass).length, nf = counts.length - np;
+  log.innerHTML = `
+    <div style="margin-bottom:8px;font-size:.8rem;color:#a0aec0">
+      <span class="check-ok">${np} pass</span> · <span class="check-fail">${nf} fail</span>
+      &nbsp;|&nbsp; Filter:
+      <select id="status-filter" style="background:#0d1117;border:1px solid #2d3748;border-radius:5px;color:#e2e8f0;font-size:.78rem;padding:2px 5px">
+        <option value="all"${statusFilter==='all'?' selected':''}>All</option>
+        <option value="pass"${statusFilter==='pass'?' selected':''}>Pass only</option>
+        <option value="fail"${statusFilter==='fail'?' selected':''}>Fail only</option>
+      </select>
+    </div>
+    <table id="summary-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+
+  log.querySelectorAll('th[data-key]').forEach(th => th.onclick = () => {
+    const k = th.dataset.key;
+    if (k === sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = 1; }
+    renderSummary();
+  });
+  log.querySelectorAll('tbody tr[data-dir]').forEach(tr => tr.onclick = () => {
+    const it = examplesList.find(e => e.dir === tr.dataset.dir);
+    if (it) selectExample(it);
+  });
+  const sf = document.getElementById('status-filter');
+  if (sf) sf.onchange = () => { statusFilter = sf.value; renderSummary(); };
+}
+
+function runOneCollect(item) {
   return new Promise(resolve => {
-    const src = new EventSource(`/api/run?dir=${encodeURIComponent(item.dir)}`);
+    let runURL = `/api/run?dir=${encodeURIComponent(item.dir)}`;
+    const gd = document.getElementById('global-deploy').value.trim();
+    if (gd) runURL += `&deploy=${encodeURIComponent(gd)}`;
+    const src = new EventSource(runURL);
     const results = [];
     let finished = false;
     src.addEventListener('result', e => { try { results.push(JSON.parse(e.data)); } catch(_){} });
@@ -405,34 +514,7 @@ function runOneCollect(item, tbody, phRow) {
       if (finished) return;
       finished = true;
       src.close();
-      phRow.remove();
-      if (!results.length) {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${item.name}</td><td colspan="${CHECKS_ORDER.length+4}"><span class="badge fail">ERROR — no result (see example page for log)</span></td>`;
-        tr.onclick = () => selectExample(item);
-        tbody.appendChild(tr);
-      }
-      results.forEach(r => {
-        const byName = {};
-        (r.Checks||[]).forEach(c => byName[c.Name] = c);
-        const cells = CHECKS_ORDER.map(name => {
-          const c = byName[name];
-          if (c === undefined) return '<td style="color:#4a5568">—</td>';
-          const cls = c.OK ? 'check-ok' : (c.Optional ? 'check-warn' : 'check-fail');
-          const sym = c.OK ? '✓' : (c.Optional ? '!' : '✗');
-          return `<td class="${cls}">${sym}</td>`;
-        }).join('');
-        const variant = r.Variant && r.Variant !== r.Name ? r.Variant : '';
-        const ms = Math.round((r.Duration||0)/1e6);
-        const censor = r.Fingerprint ? (r.Fingerprint.Verdict||'') : '';
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${r.Name||item.name}</td><td style="color:#a78bfa">${variant}</td>${cells}
-          <td>${censor}</td><td style="color:#718096">${ms}ms</td>
-          <td><span class="badge ${r.Pass?'pass':'fail'}">${r.Pass?'PASS':'FAIL'}</span></td>`;
-        tr.onclick = () => selectExample(item);
-        tbody.appendChild(tr);
-      });
-      resolve();
+      resolve(results);
     };
     src.addEventListener('done', finish);
     src.onerror = () => finish(); // network-level error — move on to next example
