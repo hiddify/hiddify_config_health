@@ -180,7 +180,10 @@ func checkCmd() *cobra.Command {
 			// Read run.json to know the core, then call core.Check.
 			// For now: just verify run.json parses and referenced config files exist.
 			path := filepath.Join(args[0], "run.json")
-			if _, err := os.Stat(path); err != nil {
+			pathJ2 := filepath.Join(args[0], "run.json.j2")
+			_, err1 := os.Stat(path)
+			_, err2 := os.Stat(pathJ2)
+			if err1 != nil && err2 != nil {
 				return fmt.Errorf("run.json not found in %s", args[0])
 			}
 			fmt.Println("OK")
@@ -270,10 +273,17 @@ func findExamples(root string) ([]string, error) {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		if d.Name() != "run.json" {
+		if d.Name() != "run.json" && d.Name() != "run.json.j2" {
 			return nil
 		}
 		dir := filepath.Join(root, filepath.Dir(path))
+		// A dir with both run.json and run.json.j2 is visited twice; the .j2
+		// is the source of truth, so skip the plain run.json in that case.
+		if d.Name() == "run.json" {
+			if _, err := os.Stat(filepath.Join(dir, "run.json.j2")); err == nil {
+				return nil
+			}
+		}
 		// Skip "inheritance-only" run.json files that have no config files
 		// alongside them (no .json/.j2/.tpl other than run.json itself).
 		if !hasConfigFiles(dir) {

@@ -1,0 +1,24 @@
+{% extends "../templates/base/server.json.j2" %}
+
+{% block inbound %}
+{
+  "tag": "proxy-in",
+  "port": {{ PORT }},
+  "listen": "{{ SERVER }}",
+  "protocol": "vless",
+  "settings": {
+    "clients": [
+      {
+        "id": "{{ UUID }}",
+        "flow": "{{ VLESS_FLOW }}"
+      }
+    ],
+    "decryption": "{{ VLESS_DEC }}"
+  },
+  "streamSettings": {
+    "network": "tcp",
+    {% include "../templates/tls/server.tpl" %}
+    "tcpSettings": {}
+  }
+}
+{% endblock %}

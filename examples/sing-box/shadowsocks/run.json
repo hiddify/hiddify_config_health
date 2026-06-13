@@ -14,5 +14,6 @@
   ],
 
   "checks": ["dns", "http", "quic"],
+  "optional_checks": ["quic"],
   "timeout_sec": 30,
 }

@@ -1,0 +1,26 @@
+{
+  // VLESS + XTLS-Vision (xray-core) — raw TCP + TLS + xtls-rprx-vision flow.
+  // This is the canonical "one good protocol" setup: VLESS over TCP with
+  // real TLS and the Vision flow control (anti-active-probing). Inherits
+  // binary paths and deploy settings from ../run.json and ../../run.json.
+  "name": "VLESS + Vision (xray)",
+  "server_config": "server",
+  "client_config": "client",
+  "tls": true,
+
+  "vars": [
+    {
+      "TITLE":      "vless-vision",
+      "TLS":        "1",
+      "VLESS_ENC":  "none",
+      "VLESS_DEC":  "none",
+      "VLESS_FLOW": "xtls-rprx-vision",
+      "HOST_NAME":  "127.0.0.1",
+      "SNI_NAME":   "127.0.0.1",
+    },
+  ],
+
+  "checks": ["dns", "http", "quic", "speedtest"],
+  "optional_checks": ["quic"],
+  "timeout_sec": 30,
+}

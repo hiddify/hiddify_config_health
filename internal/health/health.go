@@ -86,6 +86,8 @@ func (c *Config) defaults() {
 type Result struct {
 	Name      string
 	OK        bool
+	// Optional marks a check whose failure is a warning, not a run failure.
+	Optional  bool
 	Duration  time.Duration
 	Err       error
 	// Extra human-readable detail (throughput, ping stats, …).

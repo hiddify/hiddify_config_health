@@ -276,16 +276,24 @@ func runVariant(ctx context.Context, dir string, cfg RunConfig, v Variant, out i
 		Checks:    cfg.Checks,
 		Timeout:   timeout,
 	})
-	res.Checks = hresults
+	optional := map[string]bool{}
+	for _, name := range cfg.OptionalChecks {
+		optional[name] = true
+	}
 
 	pass := true
-	for _, r := range hresults {
-		if !r.OK {
+	for i := range hresults {
+		r := &hresults[i]
+		r.Optional = optional[r.Name]
+		if !r.OK && !r.Optional {
 			pass = false
 		}
 		status := "PASS"
 		if !r.OK {
 			status = "FAIL"
+			if r.Optional {
+				status = "WARN"
+			}
 		}
 		msg := fmt.Sprintf("[check] %-10s %s", r.Name, status)
 		if r.Extra != "" {

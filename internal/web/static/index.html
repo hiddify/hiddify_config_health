@@ -47,6 +47,7 @@
   .check-name{color:#e2e8f0}
   .check-ok{color:#6ee7b7}
   .check-fail{color:#fca5a5}
+  .check-warn{color:#fbbf24}
   .check-extra{font-size:.72rem;color:#718096;margin-top:2px}
   .fp-row{font-size:.78rem;padding:4px 0;color:#a0aec0}
   .fp-badge{display:inline-block;padding:2px 8px;border-radius:9px;font-size:.75rem;font-weight:700;margin-bottom:8px}
@@ -248,9 +249,12 @@ function renderResults(r) {
     : '<h3>Results</h3>';
 
   (r.Checks||[]).forEach(c => {
+    const cls = c.OK ? 'check-ok' : (c.Optional ? 'check-warn' : 'check-fail');
+    const sym = c.OK ? '✓' : (c.Optional ? '!' : '✗');
+    const extra = c.Extra || (!c.OK && c.Optional ? 'optional — does not fail run' : '');
     html += `<div class="check-row">
-      <div><div class="check-name">${c.Name}</div>${c.Extra?`<div class="check-extra">${c.Extra}</div>`:''}  </div>
-      <span class="${c.OK?'check-ok':'check-fail'}">${c.OK?'✓':'✗'}</span>
+      <div><div class="check-name">${c.Name}</div>${extra?`<div class="check-extra">${extra}</div>`:''}  </div>
+      <span class="${cls}">${sym}</span>
     </div>`;
   });
 
@@ -364,10 +368,14 @@ function runOneCollect(item, tbody, phRow) {
       }
       results.forEach(r => {
         const byName = {};
-        (r.Checks||[]).forEach(c => byName[c.Name] = c.OK);
-        const cells = CHECKS_ORDER.map(c =>
-          byName[c] === undefined ? '<td style="color:#4a5568">—</td>'
-          : `<td class="${byName[c]?'check-ok':'check-fail'}">${byName[c]?'✓':'✗'}</td>`).join('');
+        (r.Checks||[]).forEach(c => byName[c.Name] = c);
+        const cells = CHECKS_ORDER.map(name => {
+          const c = byName[name];
+          if (c === undefined) return '<td style="color:#4a5568">—</td>';
+          const cls = c.OK ? 'check-ok' : (c.Optional ? 'check-warn' : 'check-fail');
+          const sym = c.OK ? '✓' : (c.Optional ? '!' : '✗');
+          return `<td class="${cls}">${sym}</td>`;
+        }).join('');
         const variant = r.Variant && r.Variant !== r.Name ? r.Variant : '';
         const ms = Math.round((r.Duration||0)/1e6);
         const censor = r.Fingerprint ? (r.Fingerprint.Verdict||'') : '';

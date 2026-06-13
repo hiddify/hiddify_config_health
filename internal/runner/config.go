@@ -56,6 +56,11 @@ type RunConfig struct {
 	// Default in run.json: comment out custom checks until needed.
 	Checks []string `json:"checks"`
 
+	// OptionalChecks lists checks whose failure is reported as a warning but
+	// does NOT fail the run. Use for checks that depend on the local network
+	// rather than the proxy config (e.g. "quic" on networks that block UDP/443).
+	OptionalChecks []string `json:"optional_checks,omitempty"`
+
 	// StripJSON5, when false, skips stripping JSON5 comments/trailing commas
 	// from rendered config files before passing them to the core process.
 	// Default: true (most cores require valid JSON).

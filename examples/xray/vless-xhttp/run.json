@@ -26,5 +26,6 @@
     },
   ],
   "checks": ["dns", "http", "quic", "speedtest"],
+  "optional_checks": ["quic"],
   "timeout_sec": 30
 }

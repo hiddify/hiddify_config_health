@@ -1,0 +1,22 @@
+{% extends "../templates/base/client.json.j2" %}
+
+{% block outbound %}
+{
+  "tag": "proxy",
+  "protocol": "vless",
+  "settings": {
+    "vnext": [
+      {
+        "address": "{{ SERVER }}",
+        "port": {{ PORT }},
+        "users": [{"id": "{{ UUID }}", "encryption": "{{ VLESS_ENC }}", "flow": "{{ VLESS_FLOW }}"}]
+      }
+    ]
+  },
+  "streamSettings": {
+    "network": "tcp",
+    {% include "../templates/tls/client.tpl" %}
+    "tcpSettings": {}
+  }
+}
+{% endblock %}

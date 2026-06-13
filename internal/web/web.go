@@ -223,10 +223,17 @@ func scanExamples(root string) ([]exampleEntry, error) {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		if d.Name() != "run.json" {
+		if d.Name() != "run.json" && d.Name() != "run.json.j2" {
 			return nil
 		}
 		dir := filepath.Dir(path)
+		// A dir with both run.json and run.json.j2 is visited twice; the .j2
+		// is the source of truth, so skip the plain run.json in that case.
+		if d.Name() == "run.json" {
+			if _, err := os.Stat(filepath.Join(dir, "run.json.j2")); err == nil {
+				return nil
+			}
+		}
 		// Skip inheritance-only run.json files (no sibling config files).
 		if !hasConfigFiles(dir) {
 			return nil

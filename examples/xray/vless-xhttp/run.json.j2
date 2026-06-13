@@ -6,20 +6,21 @@
   "client_config": "client",
   "tls": true,
 
+  // NOTE: xtls-rprx-vision flow is NOT valid over xHTTP — it requires raw
+  // TCP+TLS. See the vless-vision example for that. xHTTP uses flow "".
   "vars": [
-    {% for flow in ",xtls-rprx-vision"|split:"," %}
     {
-      "TITLE":      "{% if flow %}vless-flow{% else %}plain-tls{% endif %}",
+      "TITLE":      "plain-tls",
       "TLS":        "1",
       "VLESS_ENC":  "none",
       "VLESS_DEC":  "none",
-      "VLESS_FLOW": "{{ flow }}",
+      "VLESS_FLOW": "",
       "HOST_NAME":  "127.0.0.1",
       "SNI_NAME":   "127.0.0.1",
     },
-    {% endfor %}
   ],
 
   "checks": ["dns", "http", "quic", "speedtest"],
+  "optional_checks": ["quic"],
   "timeout_sec": 30,
 }
