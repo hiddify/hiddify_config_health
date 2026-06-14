@@ -73,6 +73,21 @@ func RunWithOverrides(ctx context.Context, dir string, out io.Writer, ov Overrid
 		cfg.DeployToServer = ov.DeployToServer
 	}
 
+	// When deploying the server to a remote SSH host, the client must connect
+	// to that host's address, not the default 127.0.0.1. If the caller did not
+	// explicitly override SERVER, derive it from the SSH host so the client
+	// reaches the deployed server instead of localhost (where nothing listens).
+	if cfg.DeployToServer != "" {
+		if _, set := ov.Vars["SERVER"]; !set {
+			if h := sshHostFromURL(cfg.DeployToServer); h != "" {
+				if ov.Vars == nil {
+					ov.Vars = map[string]string{}
+				}
+				ov.Vars["SERVER"] = h
+			}
+		}
+	}
+
 	variants := cfg.Variants()
 	for i := range variants {
 		if variants[i].Vars == nil {
@@ -229,14 +244,36 @@ func runVariant(ctx context.Context, dir string, cfg RunConfig, v Variant, out i
 				res.Err = fmt.Errorf("SSH dial %s: %w", n.sshURL, err)
 				return res, res.Err
 			}
+			// The local binPath (e.g. a macOS path) does not exist on the
+			// remote host — resolve the core binary on the server instead.
+			remoteBin := resolveRemoteBin(sc, cfg.Core)
+			if remoteBin == "" {
+				// Not present — download the official release on the remote.
+				log.Printf("[deploy] %s not found on remote, installing official release…", cfg.Core)
+				installed, ierr := installRemoteCore(sc, cfg.Core)
+				if ierr != nil {
+					sc.Close()
+					res.Err = fmt.Errorf("deploy: core %q not on remote %s and auto-install failed: %w (or set HCH_REMOTE_%s_BIN to an existing path)",
+						cfg.Core, sshHostFromURL(n.sshURL), ierr, strings.ToUpper(strings.ReplaceAll(cfg.Core, "-", "")))
+					return res, res.Err
+				}
+				remoteBin = installed
+				log.Printf("[deploy] installed %s at %s", cfg.Core, remoteBin)
+			}
 			remoteDir := "/tmp/hch"
+			if err := sshExec(sc, "mkdir -p "+remoteDir); err != nil {
+				sc.Close()
+				res.Err = fmt.Errorf("deploy: mkdir remote dir: %w", err)
+				return res, res.Err
+			}
 			if err := scpFile(sc, n.renderedPath, remoteDir+"/config.json"); err != nil {
 				sc.Close()
 				res.Err = err
 				return res, err
 			}
+			log.Printf("[core] %s (remote %s) role=%s", remoteBin, sshHostFromURL(n.sshURL), n.role)
 			remoteCmd := fmt.Sprintf("nohup %s %s%s/config.json > /tmp/hch.log 2>&1 &",
-				binPath, strings.Join(args, " ")+" ", remoteDir)
+				remoteBin, strings.Join(args, " ")+" ", remoteDir)
 			if err := sshExec(sc, remoteCmd); err != nil {
 				sc.Close()
 				res.Err = err
@@ -272,9 +309,12 @@ func runVariant(ctx context.Context, dir string, cfg RunConfig, v Variant, out i
 
 	// --- health checks ---
 	hresults, _ := health.Run(ctx, health.Config{
-		ProxyAddr: "socks5://" + socksAddr,
-		Checks:    cfg.Checks,
-		Timeout:   timeout,
+		ProxyAddr:      "socks5://" + socksAddr,
+		Checks:         cfg.Checks,
+		Timeout:        timeout,
+		OptionalChecks: cfg.OptionalChecks,
+		ServerHost:     renderedVars["SERVER"],
+		ServerPort:     renderedVars["PORT"],
 	})
 	optional := map[string]bool{}
 	for _, name := range cfg.OptionalChecks {

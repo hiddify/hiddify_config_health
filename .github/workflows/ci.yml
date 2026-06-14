@@ -39,6 +39,64 @@ jobs:
             ./hiddify-health check "$dir" || exit 1
           done
 
+  protocol-test:
+    name: Protocol health gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install sing-box
+        run: |
+          SB_VER=1.13.13
+          curl -fsSL -o sb.tgz \
+            "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.tar.gz"
+          tar -xzf sb.tgz
+          sudo install "sing-box-${SB_VER}-linux-amd64/sing-box" /usr/local/bin/sing-box
+          sing-box version
+
+      - name: Install xray
+        run: |
+          XR_VER=26.3.27
+          curl -fsSL -o xray.zip \
+            "https://github.com/XTLS/Xray-core/releases/download/v${XR_VER}/Xray-linux-64.zip"
+          unzip -o xray.zip xray
+          sudo install xray /usr/local/bin/xray
+          xray version | head -1
+
+      - name: Build
+        run: go build -o hiddify-health ./cmd
+
+      - name: Run all protocol tests (JSON gate)
+        env:
+          SINGBOX_BIN: /usr/local/bin/sing-box
+          XRAY_CLIENT_PATH: /usr/local/bin/xray
+          XRAY_SERVER_PATH: /usr/local/bin/xray
+        run: |
+          # Warn-only checks (quic/probe/entropy/load/tls-fp) do not fail the run.
+          # Exit non-zero only on a real connectivity failure.
+          ./hiddify-health run-all examples/ --json | tee result.json
+          # Fail the job if the report records any failures.
+          python3 -c "import json,sys; d=json.load(open('result.json')); sys.exit(1 if d['failed'] else 0)"
+
+      - name: Generate HTML report
+        if: always()
+        run: ./hiddify-health report --html report.html
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-report
+          path: |
+            report.html
+            result.json
+
   cross-compile:
     name: Cross-compile
     runs-on: ubuntu-latest

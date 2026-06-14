@@ -107,6 +107,22 @@ func (d *DB) AllLatest() ([]Record, error) {
 	return scanRecords(rows)
 }
 
+// AllLatestVariants returns the most recent record for every distinct
+// (example_dir, variant) pair — one row per protocol variant, suitable for a
+// summary report.
+func (d *DB) AllLatestVariants() ([]Record, error) {
+	rows, err := d.db.Query(`
+		SELECT id, example_dir, name, variant, core_version, pass, checks_json, fingerprint_json, log, started_at, duration_ms
+		FROM runs
+		WHERE id IN (SELECT MAX(id) FROM runs GROUP BY example_dir, variant)
+		ORDER BY example_dir, variant`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRecords(rows)
+}
+
 func scanRecords(rows *sql.Rows) ([]Record, error) {
 	var out []Record
 	for rows.Next() {

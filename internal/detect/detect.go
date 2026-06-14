@@ -20,6 +20,20 @@ type TrafficFingerprint struct {
 
 	// Verdict is a one-word summary: "opaque", "recognizable", "unknown".
 	Verdict string
+
+	// MeasuredEntropy is set when the entropy check ran (real Shannon entropy
+	// of the tunnel ciphertext, 0..1). Overrides the heuristic EntropyScore in
+	// the verdict when present.
+	MeasuredEntropy float64
+
+	// ProbeVerdict is the active-probe result: resistant | fingerprintable |
+	// timing-leak | unreachable (empty if the check did not run).
+	ProbeVerdict string
+
+	// JA3 / JA4 / TLSMatch come from the tls-fingerprint check.
+	JA3      string
+	JA4      string
+	TLSMatch string
 }
 
 // Passive derives a TrafficFingerprint from completed health check results
@@ -39,8 +53,16 @@ func Passive(results []health.Result) TrafficFingerprint {
 			fp.LooksLikeQUIC = r.OK
 		case "dns", "tcp-dns":
 			dnsOK = r.OK
-		case "download":
-			downloadTP = r.Throughput
+		case "download", "load":
+			if r.Throughput > downloadTP {
+				downloadTP = r.Throughput
+			}
+		case "entropy":
+			fp.MeasuredEntropy = r.EntropyScore
+		case "active-probe":
+			fp.ProbeVerdict = r.ProbeVerdict
+		case "tls-fingerprint":
+			fp.JA3, fp.JA4, fp.TLSMatch = r.JA3, r.JA4, r.TLSMatch
 		}
 	}
 
@@ -62,6 +84,11 @@ func Passive(results []health.Result) TrafficFingerprint {
 		fp.EntropyScore = float64(passing) / float64(len(results))
 	}
 
+	// Verdict precedence: hard-blocked and DNS-leak first, then active-probing
+	// leaks (the strongest real censorship signal we have on a single host),
+	// then the pass-ratio opacity heuristic. MeasuredEntropy is reported but
+	// not gated on — on a local loopback test it is too noisy to gate (the
+	// payload may be null bytes and framing is repackaged by the core).
 	switch {
 	case len(results) == 0:
 		fp.Verdict = "unknown"
@@ -69,6 +96,10 @@ func Passive(results []health.Result) TrafficFingerprint {
 		fp.Verdict = "blocked"
 	case fp.HasDNSLeak:
 		fp.Verdict = "leaking"
+	case fp.ProbeVerdict == "fingerprintable" || fp.ProbeVerdict == "timing-leak":
+		// Server leaks under active probing — censor-detectable regardless of
+		// how opaque the payload looks.
+		fp.Verdict = "probeable"
 	case fp.EntropyScore >= 0.75:
 		fp.Verdict = "opaque"
 	default:

@@ -24,6 +24,9 @@ import (
 	"github.com/hiddify/hiddify_config_health/internal/web"
 )
 
+// Version is set at build time via -ldflags "-X main.Version=...".
+var Version = "dev"
+
 func main() {
 	if err := rootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -39,6 +42,7 @@ var (
 	flagJSON        bool
 	flagCore        string
 	flagDeploy      string
+	flagPort        string
 )
 
 // jsonCheck is the CI-friendly serialization of a single health check.
@@ -60,6 +64,16 @@ type jsonResult struct {
 	Pass        bool        `json:"pass"`
 	Censor      string      `json:"censor,omitempty"`
 	DurationMs  int64       `json:"duration_ms"`
+	LatencyMs   float64     `json:"latency_ms,omitempty"`
+	JitterMs    float64     `json:"jitter_ms,omitempty"`
+	ProbeVerdict string     `json:"probe_verdict,omitempty"`
+	JA3          string     `json:"ja3,omitempty"`
+	JA4          string     `json:"ja4,omitempty"`
+	TLSMatch     string     `json:"tls_match,omitempty"`
+	Entropy      float64    `json:"entropy,omitempty"`
+	LoadBPS      float64    `json:"load_bps,omitempty"`
+	LoadDropped  int        `json:"load_dropped,omitempty"`
+	Regressed    bool       `json:"regressed,omitempty"`
 	Checks      []jsonCheck `json:"checks"`
 	Error       string      `json:"error,omitempty"`
 }
@@ -86,6 +100,24 @@ func toJSONResult(dir, core string, res *runner.Result) jsonResult {
 		if c.Err != nil {
 			jc.Error = c.Err.Error()
 		}
+		if c.Name == "ping" && c.PingAvg > 0 {
+			jr.LatencyMs = float64(c.PingAvg.Microseconds()) / 1000.0
+		}
+		if (c.Name == "ping" || c.Name == "jitter") && c.Jitter > 0 {
+			jr.JitterMs = float64(c.Jitter.Microseconds()) / 1000.0
+		}
+		switch c.Name {
+		case "active-probe":
+			jr.ProbeVerdict = c.ProbeVerdict
+		case "tls-fingerprint":
+			jr.JA3, jr.JA4, jr.TLSMatch = c.JA3, c.JA4, c.TLSMatch
+		case "entropy":
+			jr.Entropy = c.EntropyScore
+		case "load":
+			jr.LoadBPS, jr.LoadDropped = c.Throughput, c.LoadDropped
+		case "regression":
+			jr.Regressed = c.Regressed
+		}
 		jr.Checks = append(jr.Checks, jc)
 	}
 	return jr
@@ -93,8 +125,9 @@ func toJSONResult(dir, core string, res *runner.Result) jsonResult {
 
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "hiddify-health",
-		Short: "Test VPN/proxy configuration files across multiple cores",
+		Use:     "hiddify-health",
+		Short:   "Test VPN/proxy configuration files across multiple cores",
+		Version: Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -109,6 +142,7 @@ func rootCmd() *cobra.Command {
 		checkCmd(),
 		serveCmd(),
 		historyCmd(),
+		reportCmd(),
 	)
 	return root
 }
@@ -137,6 +171,7 @@ func runCmd() *cobra.Command {
 	}
 	c.Flags().BoolVar(&flagJSON, "json", false, "emit machine-readable JSON report (for CI)")
 	c.Flags().StringVar(&flagDeploy, "deploy", "", "deploy server to this SSH URL for all examples (ssh://user:pass@host:22)")
+	c.Flags().StringVar(&flagPort, "port", "", "pin the server PORT to a fixed value (needed for remote deploy through a firewall)")
 	return c
 }
 
@@ -153,7 +188,13 @@ func runOne(ctx context.Context, dir string, db *store.DB) ([]jsonResult, bool) 
 	}
 
 	core := coreOf(dir)
-	results, err := runner.RunWithOverrides(ctx, dir, logOut, runner.Overrides{DeployToServer: flagDeploy})
+	ov := runner.Overrides{DeployToServer: flagDeploy}
+	if flagPort != "" {
+		// Pin the server port to a fixed, firewall-opened value (needed for
+		// remote deploy, where a random high port is usually blocked).
+		ov.Vars = map[string]string{"PORT": flagPort}
+	}
+	results, err := runner.RunWithOverrides(ctx, dir, logOut, ov)
 	if err != nil && len(results) == 0 {
 		// Hard failure before any variant produced a result.
 		if !flagJSON {
@@ -165,6 +206,13 @@ func runOne(ctx context.Context, dir string, db *store.DB) ([]jsonResult, bool) 
 	var jrs []jsonResult
 	anyFail := false
 	for _, res := range results {
+		// Compare against the prior baseline BEFORE saving this run, and append
+		// the regression verdict as an extra (warn-only) check row.
+		if db != nil {
+			if reg, ok := db.RegressionCheck(dir, res.Variant, res.Checks); ok {
+				res.Checks = append(res.Checks, reg)
+			}
+		}
 		if db != nil {
 			rec := store.Record{
 				ExampleDir:  dir,
@@ -288,6 +336,7 @@ func runAllCmd() *cobra.Command {
 	c.Flags().BoolVar(&flagJSON, "json", false, "emit machine-readable JSON report (for CI)")
 	c.Flags().StringVar(&flagCore, "core", "", "only run examples for this core (e.g. sing-box, xray)")
 	c.Flags().StringVar(&flagDeploy, "deploy", "", "deploy server to this SSH URL for ALL examples (ssh://user:pass@host:22)")
+	c.Flags().StringVar(&flagPort, "port", "", "pin the server PORT to a fixed value (needed for remote deploy through a firewall)")
 	return c
 }
 

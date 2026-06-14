@@ -15,7 +15,7 @@
     },
   ],
 
-  "checks": ["dns", "http", "quic", "speedtest"],
-  "optional_checks": ["quic"],
+  "checks": ["dns", "http", "quic", "speedtest", "load", "entropy", "active-probe", "tls-fingerprint"],
+  "optional_checks": ["quic", "load", "entropy", "active-probe", "tls-fingerprint"],
   "timeout_sec": 30,
 }

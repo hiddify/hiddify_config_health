@@ -44,11 +44,42 @@ type Config struct {
 	PingCount   int
 	DownloadBytes int64
 	UploadBytes   int64
+
+	// ServerHost / ServerPort are the proxy SERVER's real address, used by
+	// checks that probe the server directly rather than through the tunnel
+	// (active-probe, tls-fingerprint). Populated by the runner from the
+	// resolved SERVER/PORT vars.
+	ServerHost string
+	ServerPort string
+
+	// LoadConns / LoadDuration control the sustained-load check.
+	LoadConns    int
+	LoadDuration time.Duration
+
+	// OptionalChecks are checks whose failure is a warning, not a failure.
+	// They also use OptionalTimeout instead of Timeout so a check that is
+	// expected to be blocked (e.g. quic on UDP-blocked networks) fails fast
+	// instead of stalling the whole run for the full Timeout.
+	OptionalChecks  []string
+	OptionalTimeout time.Duration
+}
+
+// timeoutFor returns the timeout to use for a given check name.
+func (c *Config) timeoutFor(name string) time.Duration {
+	for _, o := range c.OptionalChecks {
+		if o == name {
+			return c.OptionalTimeout
+		}
+	}
+	return c.Timeout
 }
 
 func (c *Config) defaults() {
 	if c.Timeout == 0 {
 		c.Timeout = 15 * time.Second
+	}
+	if c.OptionalTimeout == 0 {
+		c.OptionalTimeout = 6 * time.Second
 	}
 	if c.DNSServer == "" {
 		c.DNSServer = "1.1.1.1:53"
@@ -80,6 +111,22 @@ func (c *Config) defaults() {
 	if c.UploadBytes == 0 {
 		c.UploadBytes = 512_000
 	}
+	if c.LoadConns == 0 {
+		c.LoadConns = 8
+	}
+	if c.LoadDuration == 0 {
+		c.LoadDuration = 12 * time.Second
+	}
+}
+
+// errIf returns an error carrying msg when cond is true, else nil. Used by
+// checks whose pass/fail is a verdict rather than a connection error, so the
+// add() helper sets Result.OK correctly.
+func errIf(cond bool, msg string) error {
+	if cond {
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
 }
 
 // Result is the outcome of one health check.
@@ -99,8 +146,29 @@ type Result struct {
 	PingMax time.Duration
 	Jitter  time.Duration
 
-	// Populated by download / upload checks.
+	// Populated by download / upload / load checks.
 	Throughput float64 // bytes per second
+
+	// Populated by the entropy check: measured Shannon entropy of tunnel
+	// ciphertext, 0..1 (1 = indistinguishable from random).
+	EntropyScore float64
+
+	// Populated by the active-probe check: resistant | fingerprintable |
+	// timing-leak | unknown.
+	ProbeVerdict string
+
+	// Populated by the tls-fingerprint check.
+	JA3      string
+	JA4      string
+	TLSMatch string // chrome | firefox | none
+
+	// Populated by the load check.
+	LoadConns   int
+	LoadDropped int
+	LoadStdDev  float64 // per-connection throughput stddev (bytes/sec)
+
+	// Populated by the regression check: human-readable deltas vs baseline.
+	Regressed bool
 }
 
 // FormatThroughput formats bytes/s as MB/s, KB/s, or B/s.
@@ -173,7 +241,9 @@ func Run(ctx context.Context, cfg Config) ([]Result, error) {
 			})
 		case "quic":
 			add("quic", func() (Result, error) {
-				dur, err := testQUIC(d, cfg)
+				qcfg := cfg
+				qcfg.Timeout = cfg.timeoutFor("quic")
+				dur, err := testQUIC(d, qcfg)
 				return Result{Duration: dur}, err
 			})
 		case "ping":
@@ -219,6 +289,51 @@ func Run(ctx context.Context, cfg Config) ([]Result, error) {
 					return Result{}, err
 				}
 				return Result{Duration: dur, Throughput: tp, Extra: fmt.Sprintf("throughput=%s", FormatThroughput(tp))}, nil
+			})
+		case "load":
+			add("load", func() (Result, error) {
+				lr, err := testLoad(d, cfg)
+				if err != nil {
+					return Result{}, err
+				}
+				return Result{
+					Throughput: lr.AggregateBPS, LoadConns: lr.Conns,
+					LoadDropped: lr.Dropped, LoadStdDev: lr.StdDevBPS,
+					Extra: lr.extra(),
+				}, nil
+			})
+		case "entropy":
+			add("entropy", func() (Result, error) {
+				er, err := testEntropy(d, cfg)
+				if err != nil {
+					return Result{}, err
+				}
+				return Result{EntropyScore: er.Shannon, Extra: er.extra()}, nil
+			})
+		case "active-probe":
+			add("active-probe", func() (Result, error) {
+				if cfg.ServerHost == "" {
+					return Result{Extra: "no server address"}, fmt.Errorf("active-probe: server address unknown")
+				}
+				verdict, extra, err := activeProbe(cfg)
+				if err != nil {
+					return Result{}, err
+				}
+				// "resistant" is the only OK verdict; others are warns.
+				ok := verdict == "resistant"
+				return Result{OK: ok, ProbeVerdict: verdict, Extra: verdict + " " + extra}, errIf(!ok, "probe verdict: "+verdict)
+			})
+		case "tls-fingerprint":
+			add("tls-fingerprint", func() (Result, error) {
+				if cfg.ServerHost == "" {
+					return Result{Extra: "no server address"}, fmt.Errorf("tls-fingerprint: server address unknown")
+				}
+				jr, err := tlsFingerprint(cfg)
+				if err != nil {
+					return Result{}, err
+				}
+				ok := jr.Match != "none"
+				return Result{OK: ok, JA3: jr.JA3Sum, JA4: jr.JA4, TLSMatch: jr.Match, Extra: jr.extra()}, errIf(!ok, "tls fingerprint unmatched")
 			})
 		default:
 			// Treat unknown check names as custom tester executable paths.

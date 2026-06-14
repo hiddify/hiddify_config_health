@@ -56,6 +56,7 @@
   .fp-blocked{background:#7f1d1d;color:#fca5a5}
   .fp-leaking{background:#78350f;color:#fde68a}
   .fp-recognizable{background:#1e3a5f;color:#93c5fd}
+  .fp-probeable{background:#7f1d1d;color:#fca5a5}
   .history-section{margin-top:16px}
   .history-row{font-size:.75rem;padding:4px 0;border-bottom:1px solid #1a202c;display:flex;gap:8px;align-items:center}
   .welcome{color:#4a5568;padding:40px;text-align:center;font-size:.9rem}
@@ -63,8 +64,8 @@
   #btn-run-all:hover{background:#047857}
   #btn-run-all:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
   #core-filter{margin:0 16px 8px;padding:6px 8px;background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;font-size:.8rem;width:calc(100% - 32px)}
-  #global-deploy{margin:0 16px 8px;padding:6px 8px;background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;font-size:.72rem;font-family:monospace;width:calc(100% - 32px)}
-  #global-deploy::placeholder{color:#4a5568}
+  #global-deploy,#global-port{margin:0 16px 8px;padding:6px 8px;background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;font-size:.72rem;font-family:monospace;width:calc(100% - 32px)}
+  #global-deploy::placeholder,#global-port::placeholder{color:#4a5568}
   #summary-table{width:100%;border-collapse:collapse;font-size:.82rem}
   #summary-table th,#summary-table td{padding:7px 10px;text-align:left;border-bottom:1px solid #1a202c}
   #summary-table th{color:#718096;font-size:.72rem;text-transform:uppercase;position:sticky;top:0;background:#0d1117}
@@ -78,6 +79,7 @@
   <h1>🛡 Hiddify Health</h1>
   <button id="btn-run-all">▶ Run All</button>
   <input id="global-deploy" type="text" placeholder="Global SSH (ssh://user:pass@host:22) — applies to Run All" title="Deploy server to this host for every example in Run All">
+  <input id="global-port" type="text" placeholder="Fixed server port (open it on the server's firewall)" title="Pin the server PORT — required for remote deploy through a firewall">
   <select id="core-filter" title="Filter by core"><option value="">All cores</option></select>
   <div id="examples"><div class="welcome">Loading…</div></div>
 </div>
@@ -154,14 +156,25 @@ function lastRunMeta(rec) {
     const cls = 'fp-'+fp.Verdict;
     meta += `<span class="fp-badge ${cls}" style="margin:4px 6px 0 0;font-size:.65rem;padding:1px 6px">${fp.Verdict}</span>`;
   }
-  let dl = 0, ul = 0;
+  let dl = 0, ul = 0, lat = 0, jit = 0, probe = '', entropy = 0;
   (rec.Checks||[]).forEach(c => {
     if ((c.Name==='download'||c.Name==='speedtest') && c.Throughput) dl = c.Throughput;
     if (c.Name==='upload' && c.Throughput) ul = c.Throughput;
+    if (c.Name==='ping' && c.PingAvg) lat = c.PingAvg;
+    if ((c.Name==='ping'||c.Name==='jitter') && c.Jitter) jit = c.Jitter;
+    if (c.Name==='active-probe' && c.ProbeVerdict) probe = c.ProbeVerdict;
+    if (c.Name==='entropy' && c.EntropyScore) entropy = c.EntropyScore;
   });
+  if (probe) {
+    const ok = probe==='resistant';
+    meta += `<span class="fp-badge ${ok?'fp-opaque':'fp-probeable'}" style="margin:4px 6px 0 0;font-size:.62rem;padding:1px 5px">probe:${probe}</span>`;
+  }
+  if (entropy) meta += `<span class="ex-meta" style="display:inline">H=${entropy.toFixed(2)}</span>`;
   let speed = '';
-  if (dl) speed += `↓ ${fmtSpeed(dl)}`;
-  if (ul) speed += `${dl?'  ':''}↑ ${fmtSpeed(ul)}`;
+  if (lat) speed += `⏱ ${fmtLatency(lat)}`;
+  if (jit) speed += `${speed?'  ':''}± ${fmtLatency(jit)}`;
+  if (dl) speed += `${speed?'  ':''}↓ ${fmtSpeed(dl)}`;
+  if (ul) speed += `${speed?'  ':''}↑ ${fmtSpeed(ul)}`;
   if (speed) meta += `<span class="ex-meta" style="display:inline">${speed}</span>`;
   return `<div style="margin-top:4px">${badge}${meta}</div>`;
 }
@@ -235,9 +248,11 @@ document.getElementById('btn-run').onclick = () => {
 
   const deploy = document.getElementById('inp-deploy').value.trim();
   const server = document.getElementById('inp-server').value.trim();
+  const gport = document.getElementById('global-port').value.trim();
   let url = `/api/run?dir=${encodeURIComponent(selectedDir)}`;
   if (deploy) url += `&deploy=${encodeURIComponent(deploy)}`;
   if (server) url += `&server=${encodeURIComponent(server)}`;
+  if (gport) url += `&port=${encodeURIComponent(gport)}`;
 
   es = new EventSource(url);
 
@@ -421,6 +436,13 @@ function rowFromResult(r, item) {
     ms: Math.round((r.Duration||0)/1e6),
     dl: speedOf(r.Checks, ['download','speedtest']),
     ul: speedOf(r.Checks, ['upload']),
+    latency: (byName.ping && byName.ping.PingAvg) || 0, // nanoseconds
+    jitter: (byName.ping && byName.ping.Jitter) || (byName.jitter && byName.jitter.Jitter) || 0,
+    probe: (byName['active-probe'] && byName['active-probe'].ProbeVerdict) || '',
+    tls: (byName['tls-fingerprint'] && byName['tls-fingerprint'].TLSMatch) || '',
+    entropy: (byName.entropy && byName.entropy.EntropyScore) || 0,
+    loadbps: (byName.load && byName.load.Throughput) || 0,
+    regressed: !!(byName.regression && byName.regression.Regressed),
     checks: byName,
   };
 }
@@ -429,12 +451,41 @@ const SUMMARY_COLS = [
   {key:'name',    label:'Example'},
   {key:'variant', label:'Variant'},
   ...CHECKS_ORDER.map(c => ({key:'chk_'+c, label:c, check:c})),
+  {key:'latency', label:'Latency'},
+  {key:'jitter',  label:'Jitter'},
   {key:'dl',      label:'↓ DL'},
   {key:'ul',      label:'↑ UL'},
+  {key:'loadbps', label:'Load'},
+  {key:'entropy', label:'Entropy'},
+  {key:'probe',   label:'Probe'},
+  {key:'tls',     label:'TLS-FP'},
   {key:'censor',  label:'Censor'},
   {key:'ms',      label:'Time'},
   {key:'pass',    label:'Status'},
 ];
+
+function probeCell(v) {
+  if (!v) return '<td style="color:#4a5568">—</td>';
+  const ok = v==='resistant';
+  return `<td class="${ok?'check-ok':'check-warn'}">${v}</td>`;
+}
+function tlsCell(v) {
+  if (!v) return '<td style="color:#4a5568">—</td>';
+  const ok = v!=='none';
+  return `<td class="${ok?'check-ok':'check-warn'}">${v}</td>`;
+}
+function entropyCell(h) {
+  // Entropy is informational (noisy on local loopback), not a pass/fail signal,
+  // so render it neutral rather than red/green.
+  if (!h) return '<td style="color:#4a5568">—</td>';
+  return `<td style="color:#93c5fd">${h.toFixed(3)}</td>`;
+}
+
+// fmtLatency renders nanoseconds as µs / ms.
+function fmtLatency(ns) {
+  if (!ns) return '—';
+  return ns < 1e6 ? (ns/1e3).toFixed(0)+' µs' : (ns/1e6).toFixed(1)+' ms';
+}
 
 function sortVal(row, key) {
   if (key.startsWith('chk_')) { const c = row.checks && row.checks[key.slice(4)]; return c ? (c.OK?2:(c.Optional?1:0)) : -1; }
@@ -467,9 +518,13 @@ function renderSummary() {
     }).join('');
     return `<tr data-dir="${r.item.dir}">
       <td>${r.name}</td><td style="color:#a78bfa">${r.variant}</td>${cells}
+      <td style="color:#93c5fd">${fmtLatency(r.latency)}</td>
+      <td style="color:#c4b5fd">${fmtLatency(r.jitter)}</td>
       <td style="color:#718096">${r.dl?fmtSpeed(r.dl):'—'}</td>
       <td style="color:#718096">${r.ul?fmtSpeed(r.ul):'—'}</td>
-      <td>${r.censor}</td><td style="color:#718096">${r.ms}ms</td>
+      <td style="color:#718096">${r.loadbps?fmtSpeed(r.loadbps):'—'}</td>
+      ${entropyCell(r.entropy)}${probeCell(r.probe)}${tlsCell(r.tls)}
+      <td>${r.censor}${r.regressed?' <span class="badge fail" style="font-size:.6rem">REGRESSED</span>':''}</td><td style="color:#718096">${r.ms}ms</td>
       <td><span class="badge ${r.pass?'pass':'fail'}">${r.pass?'PASS':'FAIL'}</span></td>
     </tr>`;
   }).join('');
@@ -506,6 +561,8 @@ function runOneCollect(item) {
     let runURL = `/api/run?dir=${encodeURIComponent(item.dir)}`;
     const gd = document.getElementById('global-deploy').value.trim();
     if (gd) runURL += `&deploy=${encodeURIComponent(gd)}`;
+    const gp = document.getElementById('global-port').value.trim();
+    if (gp) runURL += `&port=${encodeURIComponent(gp)}`;
     const src = new EventSource(runURL);
     const results = [];
     let finished = false;

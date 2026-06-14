@@ -140,8 +140,16 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	ov := runner.Overrides{
 		DeployToServer: strings.TrimSpace(r.URL.Query().Get("deploy")),
 	}
+	// Note: when deploying without an explicit server, the runner derives the
+	// client's SERVER from the SSH host automatically.
 	if server := strings.TrimSpace(r.URL.Query().Get("server")); server != "" {
 		ov.Vars = map[string]string{"SERVER": server}
+	}
+	if port := strings.TrimSpace(r.URL.Query().Get("port")); port != "" {
+		if ov.Vars == nil {
+			ov.Vars = map[string]string{}
+		}
+		ov.Vars["PORT"] = port
 	}
 
 	results, runErr := runner.RunWithOverrides(r.Context(), dir, pw, ov)
@@ -154,6 +162,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	for _, res := range results {
 		if s.DB != nil {
+			if reg, ok := s.DB.RegressionCheck(dir, res.Variant, res.Checks); ok {
+				res.Checks = append(res.Checks, reg)
+			}
 			rec := store.Record{
 				ExampleDir:  dir,
 				Name:        res.Name,
