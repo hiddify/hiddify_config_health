@@ -97,6 +97,35 @@ jobs:
             report.html
             result.json
 
+  server:
+    name: Server (module + Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: true
+          cache-dependency-path: server/go.sum
+
+      - name: Vet + build + test server module
+        working-directory: server
+        run: |
+          go mod verify
+          go vet ./...
+          go build -o /dev/null .
+          go test ./...
+
+      - name: Validate docker-compose
+        working-directory: server
+        run: docker compose config -q
+
+      - name: Build server Docker image
+        working-directory: server
+        run: docker build -t health-check-server:ci .
+
   cross-compile:
     name: Cross-compile
     runs-on: ubuntu-latest

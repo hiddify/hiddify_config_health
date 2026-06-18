@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hiddify Health — Global Dashboard</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;padding:24px}
+  h1{color:#a78bfa;font-size:1.3rem;margin-bottom:4px}
+  .sub{color:#718096;font-size:.85rem;margin-bottom:20px}
+  table{width:100%;border-collapse:collapse;font-size:.85rem;max-width:1000px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid #1a202c}
+  th{color:#718096;text-transform:uppercase;font-size:.72rem}
+  tbody tr:hover{background:#1e2533}
+  .bar{height:8px;border-radius:4px;background:#2d3748;overflow:hidden;min-width:80px}
+  .bar>span{display:block;height:100%}
+  .g{background:#10b981}.y{background:#f59e0b}.r{background:#ef4444}
+  .muted{color:#4a5568}
+</style>
+</head>
+<body>
+  <h1>🛡 Hiddify Health — Global Dashboard</h1>
+  <div class="sub">Anonymous, aggregated results (last 7 days). Higher score = better censorship-survival + quality.</div>
+  <table>
+    <thead><tr>
+      <th>Protocol</th><th>Transport</th><th>Security</th>
+      <th>Samples</th><th>Pass rate</th><th>Opaque rate</th><th>Avg score</th>
+    </tr></thead>
+    <tbody id="rows"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+  </table>
+<script>
+function pct(x){return (x*100).toFixed(0)+'%'}
+function barCls(x){return x>=0.7?'g':(x>=0.4?'y':'r')}
+fetch('/api/aggregates').then(r=>r.json()).then(aggs=>{
+  const el=document.getElementById('rows');
+  if(!aggs||!aggs.length){el.innerHTML='<tr><td colspan="7" class="muted">No data yet.</td></tr>';return;}
+  el.innerHTML=aggs.map(a=>`<tr>
+    <td>${a.protocol}</td><td>${a.transport}</td><td>${a.security}</td>
+    <td>${a.samples}</td>
+    <td><div class="bar"><span class="${barCls(a.pass_rate)}" style="width:${pct(a.pass_rate)}"></span></div>${pct(a.pass_rate)}</td>
+    <td>${pct(a.opaque_rate)}</td>
+    <td><b>${a.avg_score.toFixed(0)}</b></td>
+  </tr>`).join('');
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+# health-check-server + Postgres for local/staging deployment.
+#
+#   docker compose up --build
+#   open http://localhost:8095
+#
+# For production at health-check.hiddify.com, set a strong POSTGRES_PASSWORD,
+# point DNS at the server port, and front it with a TLS-terminating proxy.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: healthcheck
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: healthcheck
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  server:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://healthcheck:${POSTGRES_PASSWORD:-changeme}@db:5432/healthcheck?sslmode=disable
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8095}
+      ADDR: ":8080"
+      # Admin dashboard token (REQUIRED to protect the dashboard). Set in .env.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      # Set to 1 when behind a trusted reverse proxy so rate limiting uses
+      # X-Forwarded-For instead of the proxy's own IP.
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+      # One ingest per client IP per this window.
+      INGEST_WINDOW: ${INGEST_WINDOW:-10m}
+    ports:
+      - "8095:8080"
+    restart: unless-stopped
+
+  # Client web UI (proxy / subscription tester) with sing-box + xray bundled.
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8090:8090"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

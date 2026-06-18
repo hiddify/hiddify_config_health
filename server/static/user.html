@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hiddify Health — My Results</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;padding:24px}
+  h1{color:#a78bfa;font-size:1.2rem}.sub{color:#718096;font-size:.85rem;margin:4px 0 18px}
+  table{width:100%;border-collapse:collapse;font-size:.85rem;max-width:1000px}
+  th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #1a202c}
+  th{color:#718096;text-transform:uppercase;font-size:.72rem}
+  .pass{color:#6ee7b7}.fail{color:#fca5a5}.muted{color:#4a5568}
+  .badge{padding:1px 7px;border-radius:9px;font-size:.72rem;font-weight:700}
+  .sc-hi{background:#065f46;color:#6ee7b7}.sc-mid{background:#78350f;color:#fde68a}.sc-lo{background:#7f1d1d;color:#fca5a5}
+</style>
+</head>
+<body>
+  <h1>🛡 My Results</h1>
+  <div class="sub">Private view — only results submitted with your anonymous token. No personal data is stored.</div>
+  <table>
+    <thead><tr><th>Score</th><th>Protocol</th><th>Transport</th><th>Security</th><th>Core</th><th>Status</th><th>Censor</th><th>Latency</th><th>↓ Down</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
+  </table>
+<script>
+const anon = location.pathname.replace(/^\/r\//,'');
+function fmtBps(b){return !b?'—':(b>=1048576?(b/1048576).toFixed(1)+' MB/s':(b/1024).toFixed(0)+' KB/s')}
+function scCls(s){return s>=70?'sc-hi':(s>=40?'sc-mid':'sc-lo')}
+fetch('/api/r/'+encodeURIComponent(anon)).then(r=>r.json()).then(rows=>{
+  const el=document.getElementById('rows');
+  if(!rows||!rows.length){el.innerHTML='<tr><td colspan="9" class="muted">No results for this token yet.</td></tr>';return;}
+  el.innerHTML=rows.map(r=>`<tr>
+    <td><span class="badge ${scCls(r.score)}">${r.score}</span></td>
+    <td>${r.shape.protocol}</td><td>${r.shape.transport}</td><td>${r.shape.security}</td>
+    <td>${r.core}</td>
+    <td class="${r.pass?'pass':'fail'}">${r.pass?'PASS':'FAIL'}</td>
+    <td>${r.censor||'—'}</td>
+    <td>${r.latency_ms?r.latency_ms.toFixed(1)+'ms':'—'}</td>
+    <td>${fmtBps(r.down_bps)}</td>
+  </tr>`).join('');
+});
+</script>
+</body>
+</html>

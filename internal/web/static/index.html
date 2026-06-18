@@ -59,13 +59,29 @@
   .fp-probeable{background:#7f1d1d;color:#fca5a5}
   .history-section{margin-top:16px}
   .history-row{font-size:.75rem;padding:4px 0;border-bottom:1px solid #1a202c;display:flex;gap:8px;align-items:center}
-  .welcome{color:#4a5568;padding:40px;text-align:center;font-size:.9rem}
+  .welcome{color:#64748b;padding:64px 40px;text-align:center;font-size:.92rem;line-height:1.7;max-width:520px;margin:40px auto}
+  .welcome b{color:#a78bfa}
   #btn-run-all{width:calc(100% - 32px);margin:10px 16px;background:#065f46;color:#fff}
   #btn-run-all:hover{background:#047857}
   #btn-run-all:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
   #core-filter{margin:0 16px 8px;padding:6px 8px;background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;font-size:.8rem;width:calc(100% - 32px)}
   #global-deploy,#global-port{margin:0 16px 8px;padding:6px 8px;background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;font-size:.72rem;font-family:monospace;width:calc(100% - 32px)}
   #global-deploy::placeholder,#global-port::placeholder{color:#4a5568}
+  #mode-tabs{display:flex;margin:0 16px 10px;gap:0;border:1px solid #2d3748;border-radius:8px;overflow:hidden}
+  .mode-tab{flex:1;background:#0d1117;color:#a0aec0;border:none;padding:8px 6px;font-size:.74rem;font-weight:600;cursor:pointer;transition:background .15s}
+  .mode-tab:hover{background:#1a2030}
+  .mode-tab.active{background:#6d28d9;color:#fff}
+  .mode-panel{display:flex;flex-direction:column;gap:8px}
+  #mode-sub{padding:0 16px;gap:6px}
+  #sub-url,#sub-text{background:#0d1117;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;font-size:.72rem;font-family:monospace;padding:6px 8px;width:100%}
+  #sub-url::placeholder,#sub-text::placeholder{color:#4a5568}
+  .sub-opt{font-size:.72rem;color:#a0aec0;display:flex;gap:5px;align-items:center}
+  #btn-test-sub{background:#6d28d9;color:#fff;padding:7px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600;font-size:.82rem}
+  #btn-test-sub:hover{background:#7c3aed}
+  #btn-test-sub:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
+  .score-badge{display:inline-block;min-width:30px;text-align:center;padding:1px 6px;border-radius:9px;font-size:.72rem;font-weight:700}
+  .score-hi{background:#065f46;color:#6ee7b7}.score-mid{background:#78350f;color:#fde68a}.score-lo{background:#7f1d1d;color:#fca5a5}
+  .muted{color:#4a5568}
   #summary-table{width:100%;border-collapse:collapse;font-size:.82rem}
   #summary-table th,#summary-table td{padding:7px 10px;text-align:left;border-bottom:1px solid #1a202c}
   #summary-table th{color:#718096;font-size:.72rem;text-transform:uppercase;position:sticky;top:0;background:#0d1117}
@@ -77,11 +93,30 @@
 
 <div id="sidebar">
   <h1>🛡 Hiddify Health</h1>
-  <button id="btn-run-all">▶ Run All</button>
-  <input id="global-deploy" type="text" placeholder="Global SSH (ssh://user:pass@host:22) — applies to Run All" title="Deploy server to this host for every example in Run All">
-  <input id="global-port" type="text" placeholder="Fixed server port (open it on the server's firewall)" title="Pin the server PORT — required for remote deploy through a firewall">
-  <select id="core-filter" title="Filter by core"><option value="">All cores</option></select>
-  <div id="examples"><div class="welcome">Loading…</div></div>
+
+  <div id="mode-tabs">
+    <button class="mode-tab active" data-mode="config">Configs / Deploy</button>
+    <button class="mode-tab" data-mode="sub">Subscription / Links</button>
+  </div>
+
+  <!-- Mode A: example configs + deploy on server -->
+  <div id="mode-config" class="mode-panel">
+    <button id="btn-run-all">▶ Run All</button>
+    <input id="global-deploy" type="text" placeholder="Global SSH (ssh://user:pass@host:22) — applies to Run All" title="Deploy server to this host for every example in Run All">
+    <input id="global-port" type="text" placeholder="Fixed server port (open it on the server's firewall)" title="Pin the server PORT — required for remote deploy through a firewall">
+    <select id="core-filter" title="Filter by core"><option value="">All cores</option></select>
+    <div id="examples"><div class="welcome">Loading…</div></div>
+  </div>
+
+  <!-- Mode B: subscription link / proxy list -->
+  <div id="mode-sub" class="mode-panel" style="display:none">
+    <input id="sub-url" type="text" placeholder="Subscription URL (https://…)">
+    <textarea id="sub-text" rows="5" placeholder="…or paste proxy links, one per line:&#10;vless://…&#10;vmess://…&#10;ss://…"></textarea>
+    <label class="sub-opt"><input type="checkbox" id="sub-full"> Full suite (slower)</label>
+    <label class="sub-opt" title="Sends only anonymous structural shape + metrics — no IP, no credentials, no SNI"><input type="checkbox" id="sub-submit"> Share anonymous results</label>
+    <button id="btn-test-sub">▶ Test Proxies</button>
+    <div id="sub-link" style="display:none;font-size:.72rem;color:#6ee7b7;word-break:break-all"></div>
+  </div>
 </div>
 
 <div id="main">
@@ -101,8 +136,8 @@
     </div>
   </div>
   <div id="content">
-    <div id="log-panel"><div class="welcome">Select an example from the sidebar, then click Run.</div></div>
-    <div id="results-panel"><h3>Results</h3><div id="checks-list"></div></div>
+    <div id="log-panel"><div class="welcome">Pick an example on the left, then <b>Run</b> — or use <b>Run All</b>.</div></div>
+    <div id="results-panel"><div id="checks-list"><h3>Results</h3></div></div>
   </div>
 </div>
 
@@ -578,6 +613,129 @@ function runOneCollect(item) {
   });
 }
 
+// --- subscription / proxy-list testing ---
+let subRows = [];
+let subBaseline = null;
+
+function fmtBps(bps) {
+  if (!bps) return '—';
+  return bps >= 1048576 ? (bps/1048576).toFixed(1)+' MB/s' : (bps/1024).toFixed(0)+' KB/s';
+}
+
+function scoreBadge(s) {
+  const cls = s >= 70 ? 'score-hi' : (s >= 40 ? 'score-mid' : 'score-lo');
+  return `<span class="score-badge ${cls}">${s}</span>`;
+}
+
+function geoCell(r) {
+  if (!r.country && !r.asn) return '<span class="muted">—</span>';
+  const flag = r.flagged ? ' <span class="badge fail" style="font-size:.6rem">BLOCKED ASN</span>' : '';
+  return `${r.country||''} <span style="color:#718096">${r.asn||''}</span>${flag}`;
+}
+
+function renderSub() {
+  const log = document.getElementById('log-panel');
+  const rows = subRows.slice().sort((a,b) => b.score - a.score);
+  const body = rows.map(r => {
+    const pass = !r.supported ? '<span class="badge fail">n/a</span>'
+      : (r.pass ? '<span class="badge pass">PASS</span>' : '<span class="badge fail">FAIL</span>');
+    const lat = r.latency_ms ? r.latency_ms.toFixed(1)+'ms' : '—';
+    return `<tr>
+      <td>${scoreBadge(r.score)}</td>
+      <td>${r.tag||r.server}</td><td style="color:#a78bfa">${r.protocol}</td>
+      <td>${r.core}</td><td>${pass}</td>
+      <td>${r.censor||'—'}</td><td style="color:#718096">${lat}</td>
+      <td>${geoCell(r)}</td>
+      <td style="color:#fca5a5">${r.error||''}</td>
+    </tr>`;
+  }).join('');
+  let baselineRow = '';
+  if (subBaseline) {
+    baselineRow = `<tr style="background:#0d1a17">
+      <td>—</td><td><b>baseline (no proxy)</b></td><td style="color:#718096">your line</td>
+      <td>—</td><td><span class="badge pass">RAW</span></td>
+      <td>↓${fmtBps(subBaseline.download_bps)} ↑${fmtBps(subBaseline.upload_bps)}</td>
+      <td style="color:#718096">${subBaseline.latency_ms?subBaseline.latency_ms.toFixed(1)+'ms':'—'}</td>
+      <td>—</td><td style="color:#fca5a5">${subBaseline.error||''}</td></tr>`;
+  }
+  log.innerHTML = `<table id="summary-table"><thead><tr>
+    <th>Score</th><th>Proxy</th><th>Protocol</th><th>Core</th><th>Status</th>
+    <th>Censor / Speed</th><th>Latency</th><th>Geo / ASN</th><th>Note</th></tr></thead><tbody>${baselineRow}${body}</tbody></table>`;
+}
+
+// Mode switcher: show exactly one of Configs/Deploy vs Subscription/Links,
+// and update the main header + empty state to match.
+function applyMode(mode) {
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  document.getElementById('mode-config').style.display = mode === 'config' ? 'flex' : 'none';
+  document.getElementById('mode-sub').style.display    = mode === 'sub'    ? 'flex' : 'none';
+  const title = document.getElementById('title');
+  const runBtn = document.getElementById('btn-run');
+  if (mode === 'sub') {
+    title.textContent = 'Subscription / Links';
+    runBtn.style.display = 'none';
+    document.getElementById('deploy-row').style.display = 'none';
+    document.getElementById('mode-badge').style.display = 'none';
+    if (!subRows.length) {
+      document.getElementById('log-panel').innerHTML =
+        '<div class="welcome">Paste a subscription URL or proxy links on the left, then <b>Test Proxies</b>.<br><br>Each proxy is tested on sing-box & xray, scored, and compared to your no-proxy baseline.</div>';
+      document.getElementById('checks-list').innerHTML = '<h3>Results</h3>';
+    }
+  } else {
+    title.textContent = selectedDir ? title.textContent : 'Select an example';
+    runBtn.style.display = '';
+    if (!selectedDir) {
+      document.getElementById('log-panel').innerHTML =
+        '<div class="welcome">Pick an example on the left, then <b>Run</b> — or use <b>Run All</b>.<br><br>Set a Global SSH URL to deploy the server to a remote host.</div>';
+    }
+  }
+}
+document.querySelectorAll('.mode-tab').forEach(tab => { tab.onclick = () => applyMode(tab.dataset.mode); });
+
+document.getElementById('btn-test-sub').onclick = () => {
+  const url = document.getElementById('sub-url').value.trim();
+  const text = document.getElementById('sub-text').value.trim();
+  if (!url && !text) return;
+  const full = document.getElementById('sub-full').checked;
+  const submit = document.getElementById('sub-submit').checked;
+  document.getElementById('sub-link').style.display = 'none';
+  const btn = document.getElementById('btn-test-sub');
+  btn.disabled = true; btn.textContent = '⏳ Testing…';
+  document.getElementById('title').textContent = 'Subscription / proxy results';
+  document.getElementById('deploy-row').style.display = 'none';
+  document.getElementById('mode-badge').style.display = 'none';
+  document.getElementById('checks-list').innerHTML = '<h3>Results</h3>';
+  subRows = []; subBaseline = null;
+  document.getElementById('log-panel').innerHTML = '<div class="welcome">Testing… results appear when each proxy finishes.</div>';
+
+  fetch('/api/sub', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({sub_url: url, text: text, full: full, submit: submit})
+  }).then(resp => {
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    function pump() {
+      return reader.read().then(({done, value}) => {
+        if (done) { btn.disabled=false; btn.textContent='▶ Test Proxies'; return; }
+        buf += dec.decode(value, {stream:true});
+        const parts = buf.split('\n\n'); buf = parts.pop();
+        for (const evt of parts) {
+          const m = /event: (\w+)\ndata: ([\s\S]*)/.exec(evt);
+          if (!m) continue;
+          if (m[1] === 'row') { try { subRows.push(JSON.parse(m[2])); renderSub(); } catch(_){} }
+          else if (m[1] === 'baseline') { try { subBaseline = JSON.parse(m[2]); renderSub(); } catch(_){} }
+          else if (m[1] === 'link') { const el=document.getElementById('sub-link'); el.style.display='block'; el.innerHTML='✓ Your private results: <a href="'+m[2]+'" target="_blank" style="color:#93c5fd">'+m[2]+'</a>'; }
+          else if (m[1] === 'done') { btn.disabled=false; btn.textContent='▶ Test Proxies'; }
+        }
+        return pump();
+      });
+    }
+    return pump();
+  }).catch(() => { btn.disabled=false; btn.textContent='▶ Test Proxies'; });
+};
+
+applyMode('config');
 loadExamples();
 </script>
 </body>

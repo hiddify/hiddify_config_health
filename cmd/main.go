@@ -142,6 +142,9 @@ func rootCmd() *cobra.Command {
 		checkCmd(),
 		serveCmd(),
 		historyCmd(),
+		proxyCmd(),
+		proxiesCmd(),
+		subCmd(),
 		reportCmd(),
 	)
 	return root

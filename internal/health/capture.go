@@ -6,6 +6,8 @@ import (
 	"math"
 	"net/url"
 	"time"
+
+	"github.com/hiddify/hiddify_config_health/internal/dpi"
 )
 
 // entropyResult holds measured traffic-shape statistics of the tunnel.
@@ -127,6 +129,25 @@ func testEntropy(d dialer, cfg Config) (entropyResult, error) {
 		res.MeanGapMs = float64((tot / time.Duration(len(sr.gaps))).Microseconds()) / 1000.0
 	}
 	return res, nil
+}
+
+// dpiClassify samples the opening bytes that cross the tunnel (via a short
+// download) and runs them through the DPI signature table to estimate whether
+// the flow would be flagged. On a single-hop local test this inspects the same
+// ciphertext that the wire carries.
+func dpiClassify(d dialer, cfg Config) (dpi.Verdict, error) {
+	u, err := url.Parse(cfg.DownloadURL)
+	if err != nil {
+		return dpi.Verdict{}, err
+	}
+	resp, err := httpClientFor(d, u, cfg.Timeout).Get(cfg.DownloadURL)
+	if err != nil {
+		return dpi.Verdict{}, err
+	}
+	defer resp.Body.Close()
+	opening := make([]byte, 64)
+	n, _ := io.ReadFull(resp.Body, opening)
+	return dpi.Classify(opening[:n]), nil
 }
 
 // shannonNorm returns the Shannon entropy of b normalised to 0..1 (bits/byte / 8).

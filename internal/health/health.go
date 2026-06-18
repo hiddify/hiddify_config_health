@@ -51,10 +51,18 @@ type Config struct {
 	// resolved SERVER/PORT vars.
 	ServerHost string
 	ServerPort string
+	// SNI is the configured server name, used by reality-verify to confirm the
+	// endpoint fronts the real destination site.
+	SNI string
 
 	// LoadConns / LoadDuration control the sustained-load check.
 	LoadConns    int
 	LoadDuration time.Duration
+
+	// PageloadURL is the real page fetched by the pageload check.
+	PageloadURL string
+	// StabilityDur is the hold window for the stability check.
+	StabilityDur time.Duration
 
 	// OptionalChecks are checks whose failure is a warning, not a failure.
 	// They also use OptionalTimeout instead of Timeout so a check that is
@@ -169,6 +177,21 @@ type Result struct {
 
 	// Populated by the regression check: human-readable deltas vs baseline.
 	Regressed bool
+
+	// Populated by the reality-verify check.
+	RealityVerdict string // reality-ok | sni-mismatch | handshake-fail | no-sni
+
+	// Populated by the dpi-classify check.
+	DPIClass  string
+	DPIFlag   bool // would be flagged by DPI
+
+	// Populated by the pageload check.
+	TTFBms float64
+	LoadMs float64
+
+	// Populated by the stability check.
+	Flaps      int
+	Throttled  bool
 }
 
 // FormatThroughput formats bytes/s as MB/s, KB/s, or B/s.
@@ -334,6 +357,48 @@ func Run(ctx context.Context, cfg Config) ([]Result, error) {
 				}
 				ok := jr.Match != "none"
 				return Result{OK: ok, JA3: jr.JA3Sum, JA4: jr.JA4, TLSMatch: jr.Match, Extra: jr.extra()}, errIf(!ok, "tls fingerprint unmatched")
+			})
+		case "reality-verify":
+			add("reality-verify", func() (Result, error) {
+				if cfg.ServerHost == "" {
+					return Result{Extra: "no server address"}, fmt.Errorf("reality-verify: server address unknown")
+				}
+				verdict, extra, err := realityVerify(cfg)
+				if err != nil {
+					return Result{}, err
+				}
+				ok := verdict == "reality-ok" || verdict == "no-sni"
+				return Result{OK: ok, RealityVerdict: verdict, Extra: verdict + " " + extra}, errIf(!ok, "reality: "+verdict)
+			})
+		case "dpi-classify":
+			add("dpi-classify", func() (Result, error) {
+				v, err := dpiClassify(d, cfg)
+				if err != nil {
+					return Result{}, err
+				}
+				return Result{OK: !v.WouldFlag, DPIClass: v.ClassifiedAs, DPIFlag: v.WouldFlag,
+					Extra: v.ClassifiedAs + ": " + v.Reason}, errIf(v.WouldFlag, "dpi would flag")
+			})
+		case "pageload":
+			add("pageload", func() (Result, error) {
+				pr, err := testPageload(d, cfg)
+				if err != nil {
+					return Result{}, err
+				}
+				return Result{OK: true,
+					TTFBms: float64(pr.TTFB.Microseconds()) / 1000.0,
+					LoadMs: float64(pr.Full.Microseconds()) / 1000.0,
+					Extra:  pr.extra()}, nil
+			})
+		case "stability":
+			add("stability", func() (Result, error) {
+				sr, err := testStability(d, cfg)
+				if err != nil {
+					return Result{}, err
+				}
+				return Result{OK: sr.ok(), Flaps: sr.Flaps, Throttled: sr.Throttled,
+					Jitter: time.Duration(sr.RTTStdDevMs * float64(time.Millisecond)),
+					Extra:  sr.extra()}, errIf(!sr.ok(), "unstable")
 			})
 		default:
 			// Treat unknown check names as custom tester executable paths.

@@ -79,7 +79,22 @@ func activeProbe(cfg Config) (verdict, extra string, err error) {
 		}
 	}
 
+	// Greylist / blocklist escalation: a censored server may answer a probe
+	// the first time, then drop the SAME source on a repeat probe. Connect
+	// twice in quick succession with the TLS hello; if the 1st connects but the
+	// 2nd cannot, the source looks greylisted (active-probing blocklist).
+	greylisted := false
+	{
+		p1 := sendProbe(addr, "g1", tlsHello, to)
+		p2 := sendProbe(addr, "g2", tlsHello, to)
+		if p1.connected && !p2.connected {
+			greylisted = true
+		}
+	}
+
 	switch {
+	case greylisted:
+		verdict = "greylisted"
 	case responded == 0 && !timingLeak:
 		verdict = "resistant"
 	case timingLeak:

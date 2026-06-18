@@ -120,6 +120,16 @@ func RunFirst(ctx context.Context, dir string, out io.Writer) (*Result, error) {
 	return results[0], nil
 }
 
+// firstVar returns the first non-empty value among the given var keys.
+func firstVar(vars map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := vars[k]; v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func runVariant(ctx context.Context, dir string, cfg RunConfig, v Variant, out io.Writer) (*Result, error) {
 	log := newLogWriter(out)
 	if len(cfg.Variants()) > 1 {
@@ -315,6 +325,7 @@ func runVariant(ctx context.Context, dir string, cfg RunConfig, v Variant, out i
 		OptionalChecks: cfg.OptionalChecks,
 		ServerHost:     renderedVars["SERVER"],
 		ServerPort:     renderedVars["PORT"],
+		SNI:            firstVar(renderedVars, "SNI_NAME", "HOST_NAME"),
 	})
 	optional := map[string]bool{}
 	for _, name := range cfg.OptionalChecks {

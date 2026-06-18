@@ -42,6 +42,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/run", s.handleRun)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/history", s.handleHistory)
+	mux.HandleFunc("/api/sub", s.handleSub)
 
 	return mux
 }
