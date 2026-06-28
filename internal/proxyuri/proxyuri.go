@@ -9,10 +9,17 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// ForceLocal, when true, makes ParseSubscription resolve every subscription
+// host to 127.0.0.1 instead of its real DNS address. Set via --force-local;
+// used when the panel sits behind a reverse proxy and we want subscription
+// fetches to hit the local instance rather than the public domain.
+var ForceLocal bool
 
 // Proxy is a normalised, core-agnostic description of one proxy endpoint.
 type Proxy struct {
@@ -111,7 +118,7 @@ func ParseSubscription(ctx context.Context, subURL string) ([]Proxy, []error) {
 		return nil, []error{err}
 	}
 	req.Header.Set("User-Agent", "hiddify-health/subscription")
-	cl := &http.Client{Timeout: 20 * time.Second}
+	cl := &http.Client{Timeout: 20 * time.Second, Transport: subscriptionTransport()}
 	resp, err := cl.Do(req)
 	if err != nil {
 		return nil, []error{fmt.Errorf("fetch subscription: %w", err)}
@@ -125,6 +132,25 @@ func ParseSubscription(ctx context.Context, subURL string) ([]Proxy, []error) {
 		return nil, []error{err}
 	}
 	return ParseList(decodeMaybeBase64(string(body)))
+}
+
+// subscriptionTransport returns an http.Transport that, when ForceLocal is
+// set, dials 127.0.0.1 for every subscription host (port preserved) instead
+// of resolving real DNS — used behind a reverse proxy so subscription
+// fetches hit the local instance rather than the public domain.
+func subscriptionTransport() http.RoundTripper {
+	if !ForceLocal {
+		return http.DefaultTransport
+	}
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		_, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort("127.0.0.1", port))
+	}
+	return t
 }
 
 // decodeMaybeBase64 returns the base64-decoded text if the whole blob decodes

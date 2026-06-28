@@ -147,7 +147,7 @@ let es = null;
 let examplesList = [];
 
 async function loadExamples() {
-  const res = await fetch('/api/examples');
+  const res = await fetch('api/examples');
   const items = await res.json() || [];
   examplesList = items;
   // Populate the core filter dropdown (preserve current selection).
@@ -284,7 +284,7 @@ document.getElementById('btn-run').onclick = () => {
   const deploy = document.getElementById('inp-deploy').value.trim();
   const server = document.getElementById('inp-server').value.trim();
   const gport = document.getElementById('global-port').value.trim();
-  let url = `/api/run?dir=${encodeURIComponent(selectedDir)}`;
+  let url = `api/run?dir=${encodeURIComponent(selectedDir)}`;
   if (deploy) url += `&deploy=${encodeURIComponent(deploy)}`;
   if (server) url += `&server=${encodeURIComponent(server)}`;
   if (gport) url += `&port=${encodeURIComponent(gport)}`;
@@ -383,7 +383,7 @@ function updateSidebarBadge(dir, pass) {
 }
 
 async function loadHistory(dir) {
-  const res = await fetch('/api/history?dir='+encodeURIComponent(dir));
+  const res = await fetch('api/history?dir='+encodeURIComponent(dir));
   const recs = await res.json() || [];
   const panel = document.getElementById('checks-list');
   // Remove existing history section before re-appending.
@@ -593,7 +593,7 @@ function renderSummary() {
 
 function runOneCollect(item) {
   return new Promise(resolve => {
-    let runURL = `/api/run?dir=${encodeURIComponent(item.dir)}`;
+    let runURL = `api/run?dir=${encodeURIComponent(item.dir)}`;
     const gd = document.getElementById('global-deploy').value.trim();
     if (gd) runURL += `&deploy=${encodeURIComponent(gd)}`;
     const gp = document.getElementById('global-port').value.trim();
@@ -708,7 +708,7 @@ document.getElementById('btn-test-sub').onclick = () => {
   subRows = []; subBaseline = null;
   document.getElementById('log-panel').innerHTML = '<div class="welcome">Testing… results appear when each proxy finishes.</div>';
 
-  fetch('/api/sub', {
+  fetch('api/sub', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({sub_url: url, text: text, full: full, submit: submit})
   }).then(resp => {
@@ -735,7 +735,37 @@ document.getElementById('btn-test-sub').onclick = () => {
   }).catch(() => { btn.disabled=false; btn.textContent='▶ Test Proxies'; });
 };
 
-applyMode('config');
+// URL parameters + sub-only mode.
+//   ?sub=<url>      pre-fill the subscription URL (and switch to sub mode)
+//   ?text=<links>   pre-fill the proxy-links box (newline or comma separated)
+//   ?full=1         tick the full-suite box
+//   ?run=1          auto-start the test once filled
+//   ?subonly=1      hide the mode tabs entirely — subscription-only UI
+// A build-time default is exposed as window.SUB_ONLY (set by `serve --sub-only`).
+(function initFromURL() {
+  const q = new URLSearchParams(location.search);
+  const subOnly = window.SUB_ONLY || q.get('subonly') === '1' || q.get('subonly') === 'true';
+  const sub = q.get('sub');
+  const text = q.get('text');
+  const full = q.get('full') === '1' || q.get('full') === 'true';
+
+  if (subOnly) {
+    document.getElementById('mode-tabs').style.display = 'none';
+    applyMode('sub');
+  } else {
+    applyMode('config');
+  }
+
+  if (sub || text || subOnly) applyMode('sub');
+  if (sub)  document.getElementById('sub-url').value = sub;
+  if (text) document.getElementById('sub-text').value = text.replace(/,/g, '\n');
+  if (full) document.getElementById('sub-full').checked = true;
+
+  if ((sub || text) && (q.get('run') === '1' || q.get('run') === 'true')) {
+    document.getElementById('btn-test-sub').click();
+  }
+})();
+
 loadExamples();
 </script>
 </body>

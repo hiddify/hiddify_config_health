@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base32"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -19,6 +22,7 @@ import (
 	// Register core runners via side-effect imports.
 	_ "github.com/hiddify/hiddify_config_health/internal/core"
 
+	"github.com/hiddify/hiddify_config_health/internal/proxyuri"
 	"github.com/hiddify/hiddify_config_health/internal/runner"
 	"github.com/hiddify/hiddify_config_health/internal/store"
 	"github.com/hiddify/hiddify_config_health/internal/web"
@@ -382,6 +386,10 @@ func checkCmd() *cobra.Command {
 
 func serveCmd() *cobra.Command {
 	var addr string
+	var subOnly bool
+	var secretPath string
+	var adminToken string
+	var forceLocal bool
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the web UI",
@@ -390,13 +398,30 @@ func serveCmd() *cobra.Command {
 			if db != nil {
 				defer db.Close()
 			}
+			// --secret-path: "auto" generates a random token; any other value
+			// is used literally. Empty = served at root.
+			base := strings.Trim(secretPath, "/")
+			if base == "auto" {
+				base = randToken(16)
+			}
+			if base != "" {
+				base += "/health"
+			}
+			proxyuri.ForceLocal = forceLocal
 			srv := &web.Server{
 				ExamplesDir: flagExamplesDir,
 				DB:          db,
+				SubOnly:     subOnly,
+				BasePath:    base,
+				AdminToken:  adminToken,
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			fmt.Printf("Web UI: http://%s\n", addr)
+			path := "/"
+			if base != "" {
+				path = "/" + base + "/"
+			}
+			fmt.Printf("Web UI: http://%s%s\n", addr, path)
 			go func() {
 				if err := srv.ListenAndServe(addr); err != nil {
 					fmt.Fprintln(os.Stderr, "web:", err)
@@ -407,7 +432,23 @@ func serveCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&addr, "addr", ":8080", "listen address")
+	cmd.Flags().BoolVar(&subOnly, "sub-only", false, "subscription-only UI: hide the config/deploy mode tabs")
+	cmd.Flags().StringVar(&secretPath, "secret-path", "", "serve under a secret prefix /<path>/health/ (\"auto\" = random token)")
+	cmd.Flags().StringVar(&adminToken, "admin-token", "", "require this token (cookie login) to access the UI/API; empty = open")
+	cmd.Flags().BoolVar(&forceLocal, "force-local", false, "resolve subscription hosts to 127.0.0.1 (use behind a reverse proxy)")
 	return cmd
+}
+
+// randToken returns an uppercase alphanumeric token of n chars (base32, no
+// padding) for use as a secret URL path.
+func randToken(n int) string {
+	buf := make([]byte, n)
+	_, _ = rand.Read(buf)
+	s := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(buf)
+	if len(s) > n {
+		s = s[:n]
+	}
+	return s
 }
 
 // --- history ---

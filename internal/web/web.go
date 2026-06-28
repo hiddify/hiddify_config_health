@@ -2,6 +2,7 @@
 package web
 
 import (
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -24,18 +25,91 @@ var staticFS embed.FS
 type Server struct {
 	ExamplesDir string
 	DB          *store.DB
+	SubOnly     bool   // hide config/deploy mode — subscription-only UI
+	BasePath    string // serve the whole UI under this secret prefix, e.g. "/DSJKNLIWPFKLKS/health"
+	AdminToken  string // when set, gates the whole UI + API behind a login cookie
 
 	mu      sync.Mutex
 	running map[string]bool // exampleDir → in-progress
 }
 
+const adminCookie = "hch_admin"
+
+// requireAdmin gates h behind AdminToken. No token configured → open (dev/
+// local default, matches the existing /api/health-server admin behaviour).
+func (s *Server) requireAdmin(h http.Handler) http.Handler {
+	if s.AdminToken == "" {
+		return h
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			s.handleLogin(w, r)
+			return
+		}
+		if c, err := r.Cookie(adminCookie); err == nil && tokenEqual(c.Value, s.AdminToken) {
+			h.ServeHTTP(w, r)
+			return
+		}
+		if r.Header.Get("Accept") == "application/json" || strings.HasPrefix(r.URL.Path, "/api/") {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		http.Redirect(w, r, "login", http.StatusSeeOther)
+	})
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost || r.URL.Query().Get("token") != "" {
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			token = r.FormValue("token")
+		}
+		if tokenEqual(token, s.AdminToken) {
+			http.SetCookie(w, &http.Cookie{
+				Name: adminCookie, Value: token, Path: "/",
+				HttpOnly: true, SameSite: http.SameSiteLaxMode,
+				MaxAge: 30 * 24 * 3600,
+			})
+			http.Redirect(w, r, "./", http.StatusSeeOther)
+			return
+		}
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(loginHTML))
+}
+
+func tokenEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+const loginHTML = `<!doctype html><html><head><meta charset="utf-8">
+<title>Hiddify Health — Admin</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui;background:#0f1117;color:#e2e8f0;display:flex;height:100vh;align-items:center;justify-content:center;margin:0}
+form{background:#161b26;padding:32px;border-radius:12px;border:1px solid #2d3748;width:300px}
+h1{font-size:1.1rem;color:#a78bfa;margin:0 0 16px}
+input{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #2d3748;background:#0d1117;color:#e2e8f0;margin-bottom:12px}
+button{width:100%;padding:10px;border:0;border-radius:8px;background:#6d28d9;color:#fff;font-weight:600;cursor:pointer}</style></head>
+<body><form method="post" action="login"><h1>🛡 Admin access</h1>
+<input name="token" type="password" placeholder="Admin token" autofocus>
+<button>Enter</button></form></body></html>`
+
 // Handler returns the root http.Handler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Static files.
+	// Static files. The index page is served through a wrapper that injects
+	// the SubOnly build-time default; everything else is plain static.
 	sub, _ := fs.Sub(staticFS, "static")
-	mux.Handle("/", http.FileServer(http.FS(sub)))
+	fileSrv := http.FileServer(http.FS(sub))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			s.serveIndex(w, sub)
+			return
+		}
+		fileSrv.ServeHTTP(w, r)
+	})
 
 	// API.
 	mux.HandleFunc("/api/examples", s.handleExamples)
@@ -44,7 +118,54 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/sub", s.handleSub)
 
-	return mux
+	gated := s.requireAdmin(mux)
+
+	if bp := s.basePrefix(); bp != "" {
+		// Mount the entire UI under the secret prefix. Anything outside it
+		// 404s (obscurity gate). A bare prefix without trailing slash
+		// redirects so relative URLs + <base href> resolve correctly.
+		outer := http.NewServeMux()
+		outer.Handle(bp+"/", http.StripPrefix(bp, gated))
+		outer.HandleFunc(bp, func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, bp+"/", http.StatusMovedPermanently)
+		})
+		return outer
+	}
+	return gated
+}
+
+// basePrefix returns the secret base path normalised to "/foo/bar" (leading
+// slash, no trailing slash), or "" when unset.
+func (s *Server) basePrefix() string {
+	bp := strings.Trim(s.BasePath, "/")
+	if bp == "" {
+		return ""
+	}
+	return "/" + bp
+}
+
+// serveIndex serves index.html, injecting window.SUB_ONLY when SubOnly is set
+// so the page boots in subscription-only mode without a client query param.
+func (s *Server) serveIndex(w http.ResponseWriter, sub fs.FS) {
+	b, err := fs.ReadFile(sub, "index.html")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	var head string
+	if bp := s.basePrefix(); bp != "" {
+		// All API/EventSource calls in the page are relative; <base> makes
+		// them resolve under the secret prefix.
+		head += `<base href="` + bp + `/">`
+	}
+	if s.SubOnly {
+		head += "<script>window.SUB_ONLY=true;</script>"
+	}
+	if head != "" {
+		b = []byte(strings.Replace(string(b), "</head>", head+"</head>", 1))
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(b)
 }
 
 // --- /api/examples ---
