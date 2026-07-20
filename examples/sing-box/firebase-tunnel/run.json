@@ -1,0 +1,18 @@
+{
+  // sing-box dialing out through Firebase-Tunnel's SOCKS5 client
+  // (must be started separately: fb-tunnel-server + fb-tunnel-client,
+  // client listening on 127.0.0.1:1080, before running this example).
+  "name": "Firebase-Tunnel (via sing-box socks outbound)",
+  "core": "sing-box",
+  "server_config": "server.json",
+  "client_config": "client.json",
+
+  "vars": [
+    {"TITLE": "firebase-tunnel"},
+  ],
+
+  // Firebase-Tunnel's SOCKS5 is CONNECT-only (TCP), no UDP ASSOCIATE —
+  // plain UDP "dns" check can't work through it. Use tcp-dns instead.
+  "checks": ["tcp-dns", "http"],
+  "timeout_sec": 30,
+}

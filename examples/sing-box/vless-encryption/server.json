@@ -1,0 +1,21 @@
+{
+  // sing-box VLESS server with post-quantum "VLESS Encryption"
+  // (mlkem768x25519plus) instead of TLS.
+  "log": {"level": "error"},
+
+  "inbounds": [
+    {
+      "type":       "vless",
+      "tag":        "vless-in",
+      "listen":     "{{ SERVER }}",
+      "listen_port": {{ PORT }},
+      "users": [
+        {"uuid": "{{ UUID }}"},
+      ],
+      "decryption": "mlkem768x25519plus.native.0s.{{ VLESS_ENC_PRIVKEY }}",
+    },
+  ],
+
+  "outbounds": [{"type": "direct", "tag": "direct"}],
+  "route": {"final": "direct"},
+}

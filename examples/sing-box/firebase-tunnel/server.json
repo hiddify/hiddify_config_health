@@ -1,0 +1,16 @@
+{
+  // Unused placeholder — this example's real "server" is fb-tunnel-server,
+  // run out-of-band. hiddify_config_health still requires a server_config
+  // to satisfy its runner, so this listens on {{ PORT }} but nothing dials it.
+  "log": {"level": "error"},
+  "inbounds": [
+    {
+      "type":        "direct",
+      "tag":         "unused-in",
+      "listen":      "{{ SERVER }}",
+      "listen_port": {{ PORT }},
+    },
+  ],
+  "outbounds": [{"type": "direct", "tag": "direct"}],
+  "route": {"final": "direct"},
+}

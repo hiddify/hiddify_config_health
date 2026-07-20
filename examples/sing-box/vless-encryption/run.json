@@ -1,0 +1,20 @@
+{
+  // VLESS with post-quantum "VLESS Encryption" (mlkem768x25519plus) instead
+  // of TLS. Keypair below is a fresh X25519 pair generated for this example
+  // (crypto/ecdh, base64url) — not reused anywhere.
+  "name": "VLESS + Encryption (mlkem768x25519plus, sing-box)",
+  "core": "sing-box",
+  "server_config": "server.json",
+  "client_config": "client.json",
+
+  "vars": [
+    {
+      "TITLE": "vless-encryption",
+      "VLESS_ENC_PRIVKEY": "3QofuiAHYl21hsCkH-xzLVgDpoM2DPHy5CqCcpAer6A",
+      "VLESS_ENC_PUBKEY":  "nwNQlJQ5gQrxt7k2zS_5xTQggNXxg1aByc22p66TRzg",
+    },
+  ],
+
+  "checks": ["dns", "http"],
+  "timeout_sec": 30,
+}
