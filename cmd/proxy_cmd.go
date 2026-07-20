@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/hiddify/hiddify_config_health/internal/probe"
 	"github.com/hiddify/hiddify_config_health/internal/score"
 	"github.com/hiddify/hiddify_config_health/internal/store"
 	"github.com/hiddify/hiddify_config_health/internal/telemetry"
@@ -134,6 +137,142 @@ func subCmd() *cobra.Command {
 	}
 	addProxyFlags(c)
 	return c
+}
+
+// probeCmdCLI runs a long-lived probe session against a single proxy from the
+// terminal: starts one core, ticks health checks on an interval, and prints
+// one line per sample until interrupted (Ctrl-C) or the proxy is detected
+// blocked. This is the CLI counterpart to the web UI's "Probe Time" panel —
+// same internal/probe.Runner, same single-session semantics.
+func probeCmdCLI() *cobra.Command {
+	var (
+		probeCore        string
+		probeInterval    int
+		probeActions     []string
+		probeBlockAfterN int
+		probeDownloadURL string
+		probeUploadURL   string
+		probePageloadURL string
+	)
+	c := &cobra.Command{
+		Use:   "probe <proxy-uri>",
+		Short: "Repeatedly probe ONE proxy over time to measure speed and detect blocking",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := probe.Config{
+				ExampleDir:         "cli-probe",
+				ProxyURI:           args[0],
+				Core:               probeCore,
+				Interval:           time.Duration(probeInterval) * time.Second,
+				Actions:            probeActions,
+				BlockAfterFailures: probeBlockAfterN,
+				DownloadURL:        probeDownloadURL,
+				UploadURL:          probeUploadURL,
+				PageloadURL:        probePageloadURL,
+				Seed:               time.Now().UnixNano(),
+			}
+			r, err := probe.New(cfg)
+			if err != nil {
+				return err
+			}
+
+			db, _ := store.Open(flagDBPath)
+			if db != nil {
+				defer db.Close()
+			}
+			var sessionID int64
+			if db != nil {
+				sessionID, _ = db.StartProbeSession(cfg.ExampleDir, "", cfg.Interval, cfg.Actions)
+			}
+
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			if err := r.Start(ctx); err != nil {
+				return err
+			}
+			fmt.Printf("Probing %s every %s — Ctrl-C to stop.\n"+
+				"Only ONE proxy can be probed at a time; don't route other traffic through it while this runs.\n\n",
+				args[0], cfg.Interval)
+
+			samples, events := r.Samples(), r.Events()
+			for samples != nil || events != nil {
+				select {
+				case s, ok := <-samples:
+					if !ok {
+						samples = nil
+						continue
+					}
+					printProbeSample(s)
+					if db != nil {
+						_ = db.SaveProbeSample(sessionID, store.ProbeSample{
+							Timestamp: s.Timestamp, OK: s.OK, DownloadBPS: s.DownloadBPS,
+							UploadBPS: s.UploadBPS, PageloadMs: s.PageloadMs, Err: s.Err,
+							ConsecutiveFailures: s.ConsecutiveFailures, BaselineFailed: s.BaselineFailed,
+							CoreRestarted: s.CoreRestarted,
+						})
+					}
+				case e, ok := <-events:
+					if !ok {
+						events = nil
+						continue
+					}
+					if e.Blocked {
+						fmt.Printf(">>> BLOCKED at %s <<<\n", e.Timestamp.Format(time.RFC3339))
+						if db != nil {
+							_ = db.MarkProbeBlocked(sessionID, e.Timestamp)
+						}
+					} else {
+						fmt.Printf(">>> recovered at %s <<<\n", e.Timestamp.Format(time.RFC3339))
+					}
+				case <-ctx.Done():
+					r.Stop()
+					if db != nil {
+						_ = db.StopProbeSession(sessionID)
+					}
+					fmt.Println("\nstopped.")
+					return nil
+				}
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&probeCore, "core", "sing-box", "core to run the proxy on (sing-box | xray)")
+	c.Flags().IntVar(&probeInterval, "interval", 300, "seconds between probes")
+	c.Flags().StringSliceVar(&probeActions, "actions", []string{"download"}, "comma-separated: pageload,download,upload,mix")
+	c.Flags().IntVar(&probeBlockAfterN, "block-after", 3, "consecutive proxy failures (with healthy baseline) before reporting blocked")
+	c.Flags().StringVar(&probeDownloadURL, "download-url", "", "override the download-test URL")
+	c.Flags().StringVar(&probeUploadURL, "upload-url", "", "override the upload-test URL")
+	c.Flags().StringVar(&probePageloadURL, "pageload-url", "", "override the pageload-test URL")
+	return c
+}
+
+func printProbeSample(s probe.Sample) {
+	t := s.Timestamp.Format("15:04:05")
+	status := "OK"
+	if !s.OK {
+		status = "FAIL"
+	}
+	extra := ""
+	if s.OK && s.DownloadBPS > 0 {
+		extra += fmt.Sprintf(" ↓%s", fmtBPS(s.DownloadBPS))
+	}
+	if s.OK && s.UploadBPS > 0 {
+		extra += fmt.Sprintf(" ↑%s", fmtBPS(s.UploadBPS))
+	}
+	if s.CoreRestarted {
+		extra += " [core restarted]"
+	}
+	if s.BaselineFailed {
+		extra += " [your network is down — not counted toward block]"
+	}
+	if !s.OK && s.ConsecutiveFailures > 0 {
+		extra += fmt.Sprintf(" (failure #%d)", s.ConsecutiveFailures)
+	}
+	if !s.OK && s.Err != "" {
+		extra += " — " + s.Err
+	}
+	fmt.Printf("%s  %-4s%s\n", t, status, extra)
 }
 
 func addProxyFlags(c *cobra.Command) {

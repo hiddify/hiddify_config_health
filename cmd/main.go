@@ -149,6 +149,7 @@ func rootCmd() *cobra.Command {
 		proxyCmd(),
 		proxiesCmd(),
 		subCmd(),
+		probeCmdCLI(),
 		reportCmd(),
 	)
 	return root

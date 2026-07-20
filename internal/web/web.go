@@ -29,8 +29,9 @@ type Server struct {
 	BasePath    string // serve the whole UI under this secret prefix, e.g. "/DSJKNLIWPFKLKS/health"
 	AdminToken  string // when set, gates the whole UI + API behind a login cookie
 
-	mu      sync.Mutex
-	running map[string]bool // exampleDir → in-progress
+	mu          sync.Mutex
+	running     map[string]bool // exampleDir → in-progress
+	activeProbe *probeState
 }
 
 const adminCookie = "hch_admin"
@@ -97,6 +98,14 @@ button{width:100%;padding:10px;border:0;border-radius:8px;background:#6d28d9;col
 
 // Handler returns the root http.Handler.
 func (s *Server) Handler() http.Handler {
+	if s.DB != nil {
+		// Any probe session still marked "running" belongs to a previous
+		// process lifetime (crash/restart) — the monitor died, not
+		// necessarily the proxy, so surface it distinctly rather than
+		// leaving a stale "running" session forever.
+		_ = s.DB.SweepInterruptedSessions()
+	}
+
 	mux := http.NewServeMux()
 
 	// Static files. The index page is served through a wrapper that injects
@@ -117,6 +126,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/sub", s.handleSub)
+	mux.HandleFunc("/api/probe/start", s.handleProbeStart)
+	mux.HandleFunc("/api/probe/stop", s.handleProbeStop)
+	mux.HandleFunc("/api/probe/status", s.handleProbeStatus)
+	mux.HandleFunc("/api/probe/history", s.handleProbeHistory)
+	mux.HandleFunc("/api/probe/sessions", s.handleProbeSessions)
 
 	gated := s.requireAdmin(mux)
 
@@ -177,11 +191,11 @@ func (s *Server) handleExamples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type exampleInfo struct {
-		Dir            string `json:"dir"`
-		Name           string `json:"name"`
-		Core           string `json:"core"`
-		DeployToServer string `json:"deploy_to_server,omitempty"`
-		Server         string `json:"server,omitempty"`
+		Dir            string        `json:"dir"`
+		Name           string        `json:"name"`
+		Core           string        `json:"core"`
+		DeployToServer string        `json:"deploy_to_server,omitempty"`
+		Server         string        `json:"server,omitempty"`
 		LastRun        *store.Record `json:"last_run,omitempty"`
 	}
 	var out []exampleInfo

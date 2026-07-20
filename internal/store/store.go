@@ -52,6 +52,10 @@ func Open(path string) (*DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrateProbe(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &DB{db: db}, nil
 }
 
